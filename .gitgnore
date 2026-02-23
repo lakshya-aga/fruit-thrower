@@ -1,0 +1,4 @@
+
+.env
+.code_index/*
+*__pycache__*
