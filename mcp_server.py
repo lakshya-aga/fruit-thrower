@@ -33,11 +33,16 @@ except ImportError:
     _MCP_AVAILABLE = False
 
 from parser import parse_repository, ParsedUnit
-from vector_store import SimpleTFIDFStore
+from vector_store import CodeVectorStore, SimpleTFIDFStore
 
 
-def load_store(index_dir: str) -> SimpleTFIDFStore:
-    return SimpleTFIDFStore(persist_dir=index_dir)
+def load_store(index_dir: str):
+    """Prefer semantic vector search; fall back to TF-IDF if Chroma isn't available."""
+    try:
+        return CodeVectorStore(persist_dir=index_dir)
+    except Exception as exc:
+        print(f"WARN: semantic store unavailable ({exc}); falling back to TF-IDF")
+        return SimpleTFIDFStore(persist_dir=index_dir)
 
 
 def build_server(index_dir: str, repo_root: str) -> "Server":
