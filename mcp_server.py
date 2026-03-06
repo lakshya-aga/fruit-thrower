@@ -224,30 +224,65 @@ def main():
     parser.add_argument("--repo", required=True, help="Path to repository root")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind to")
     parser.add_argument("--port", default=8000, type=int, help="Port to listen on")
+    parser.add_argument(
+        "--transport",
+        choices=["streamable", "sse"],
+        default="streamable",
+        help="MCP transport to expose (default: streamable)",
+    )
+    parser.add_argument(
+        "--mount-path",
+        default="/mcp",
+        help="Path to mount streamable HTTP transport (default: /mcp)",
+    )
     args = parser.parse_args()
 
     if not _MCP_AVAILABLE:
         print("ERROR: pip install mcp")
         sys.exit(1)
 
-    from mcp.server.sse import SseServerTransport
     from starlette.applications import Starlette
     from starlette.routing import Route, Mount
     import uvicorn
 
     server = build_server(args.index_dir, args.repo)
-    sse = SseServerTransport("/messages/")
 
-    async def handle_sse(request):
-        async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
-            await server.run(streams[0], streams[1], server.create_initialization_options())
+    if args.transport == "sse":
+        from mcp.server.sse import SseServerTransport
 
-    app = Starlette(routes=[
-        Route("/sse", endpoint=handle_sse),
-        Mount("/messages/", app=sse.handle_post_message),
-    ])
+        sse = SseServerTransport("/messages/")
 
-    print(f"Code RAG MCP running at http://{args.host}:{args.port}/sse")
+        async def handle_sse(request):
+            async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
+                await server.run(streams[0], streams[1], server.create_initialization_options())
+
+        app = Starlette(routes=[
+            Route("/sse", endpoint=handle_sse),
+            Mount("/messages/", app=sse.handle_post_message),
+        ])
+        print(f"Code RAG MCP (SSE) running at http://{args.host}:{args.port}/sse")
+
+    else:
+        import anyio
+        from contextlib import asynccontextmanager
+        from mcp.server.streamable_http import StreamableHTTPServerTransport
+
+        streamable = StreamableHTTPServerTransport(mcp_session_id=None)
+
+        @asynccontextmanager
+        async def lifespan(app):
+            async with streamable.connect() as streams:
+                async with anyio.create_task_group() as tg:
+                    tg.start_soon(server.run, streams[0], streams[1], server.create_initialization_options())
+                    yield
+                    tg.cancel_scope.cancel()
+
+        app = Starlette(
+            routes=[Mount(args.mount_path, app=streamable.handle_request)],
+            lifespan=lifespan,
+        )
+        print(f"Code RAG MCP (streamable HTTP) running at http://{args.host}:{args.port}{args.mount_path}")
+
     uvicorn.run(app, host=args.host, port=args.port)
 
 

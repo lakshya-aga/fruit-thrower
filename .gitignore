@@ -1,4 +1,7 @@
 
 .env
-.code_index/*
+.venv/
+.code_index/
+.code_index*/
+__pycache__/
 *__pycache__*
