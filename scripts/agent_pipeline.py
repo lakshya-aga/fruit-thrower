@@ -171,6 +171,15 @@ def main() -> None:
     used_auth_remote = False
     if args.push:
         used_auth_remote = configure_authenticated_remote(repo_root=repo_root, repo_slug=repo_slug, token_env=token_env)
+        # Sync remote agent before push to avoid non-fast-forward divergence.
+        run(["git", "fetch", "origin"], cwd=repo_root)
+        # If remote agent exists, rebase local commit onto it; otherwise continue with first push.
+        has_remote_agent = subprocess.run(
+            ["git", "show-ref", "--verify", "--quiet", "refs/remotes/origin/agent"],
+            cwd=repo_root,
+        ).returncode == 0
+        if has_remote_agent:
+            run(["git", "rebase", "origin/agent"], cwd=repo_root)
         # Push current HEAD explicitly to remote agent branch so first-time branch creation is reliable.
         run(["git", "push", "-u", "origin", "HEAD:agent"], cwd=repo_root)
         if used_auth_remote:
