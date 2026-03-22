@@ -28,6 +28,16 @@ def triage(spec: dict) -> tuple[bool, str]:
         return False, f"missing required fields: {', '.join(missing)}"
     if "subprocess" in spec["code"] or "os.system" in spec["code"]:
         return False, "unsafe process execution detected"
+
+    # Normalize common user shorthand to the actual submodule path.
+    mp = spec["module_path"].strip()
+    if mp.startswith("fin_kit/"):
+        mp = "fin-kit/" + mp[len("fin_kit/"):]
+        spec["module_path"] = mp
+
+    if not mp.startswith("fin-kit/"):
+        return False, "module_path must be inside fin-kit/ so it gets indexed"
+
     return True, "viable"
 
 
