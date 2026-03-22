@@ -56,18 +56,17 @@ jobs:
               sudo kill -9 $PID_ON_8090 || true
             fi
 
-            # Build runtime-only env file from GitHub Secrets (not baked into image)
-            TMP_ENV="/tmp/fruit-thrower.env"
-            sudo rm -f "$TMP_ENV"
-
             FRUIT_TOOL_BUILDER_CMD_VAL='${{ secrets.FRUIT_TOOL_BUILDER_CMD }}'
             FRUIT_TOOL_TRACE_LOG_VAL='${{ secrets.FRUIT_TOOL_TRACE_LOG }}'
             AGENT_GITHUB_TOKEN_VAL='${{ secrets.AGENT_GITHUB_TOKEN }}'
+            AGENT_GITHUB_TOKEN_FIN_KIT_VAL='${{ secrets.AGENT_GITHUB_TOKEN_FIN_KIT }}'
             AGENT_GITHUB_REPO_VAL='${{ secrets.AGENT_GITHUB_REPO }}'
             AGENT_GITHUB_REPO_FIN_KIT_VAL='${{ secrets.AGENT_GITHUB_REPO_FIN_KIT }}'
             AGENT_PR_BASE_VAL='${{ secrets.AGENT_PR_BASE }}'
             AGENT_PR_BASE_FIN_KIT_VAL='${{ secrets.AGENT_PR_BASE_FIN_KIT }}'
             AGENT_AUTO_PR_VAL='${{ secrets.AGENT_AUTO_PR }}'
+            AGENT_GIT_USER_NAME_VAL='${{ secrets.AGENT_GIT_USER_NAME }}'
+            AGENT_GIT_USER_EMAIL_VAL='${{ secrets.AGENT_GIT_USER_EMAIL }}'
 
             [ -z "$FRUIT_TOOL_BUILDER_CMD_VAL" ] && FRUIT_TOOL_BUILDER_CMD_VAL='python3 scripts/agent_pipeline.py --request {request_file} --push'
             [ -z "$FRUIT_TOOL_TRACE_LOG_VAL" ] && FRUIT_TOOL_TRACE_LOG_VAL='.tool_builder/trace.jsonl'
@@ -76,16 +75,8 @@ jobs:
             [ -z "$AGENT_PR_BASE_VAL" ] && AGENT_PR_BASE_VAL='deploy'
             [ -z "$AGENT_PR_BASE_FIN_KIT_VAL" ] && AGENT_PR_BASE_FIN_KIT_VAL='main'
             [ -z "$AGENT_AUTO_PR_VAL" ] && AGENT_AUTO_PR_VAL='0'
-
-            printf '%s\n' "FRUIT_TOOL_BUILDER_CMD=$FRUIT_TOOL_BUILDER_CMD_VAL" | sudo tee -a "$TMP_ENV" >/dev/null
-            printf '%s\n' "FRUIT_TOOL_TRACE_LOG=$FRUIT_TOOL_TRACE_LOG_VAL" | sudo tee -a "$TMP_ENV" >/dev/null
-            printf '%s\n' "AGENT_GITHUB_TOKEN=$AGENT_GITHUB_TOKEN_VAL" | sudo tee -a "$TMP_ENV" >/dev/null
-            printf '%s\n' "AGENT_GITHUB_REPO=$AGENT_GITHUB_REPO_VAL" | sudo tee -a "$TMP_ENV" >/dev/null
-            printf '%s\n' "AGENT_GITHUB_REPO_FIN_KIT=$AGENT_GITHUB_REPO_FIN_KIT_VAL" | sudo tee -a "$TMP_ENV" >/dev/null
-            printf '%s\n' "AGENT_PR_BASE=$AGENT_PR_BASE_VAL" | sudo tee -a "$TMP_ENV" >/dev/null
-            printf '%s\n' "AGENT_PR_BASE_FIN_KIT=$AGENT_PR_BASE_FIN_KIT_VAL" | sudo tee -a "$TMP_ENV" >/dev/null
-            printf '%s\n' "AGENT_AUTO_PR=$AGENT_AUTO_PR_VAL" | sudo tee -a "$TMP_ENV" >/dev/null
-            sudo chmod 600 "$TMP_ENV"
+            [ -z "$AGENT_GIT_USER_NAME_VAL" ] && AGENT_GIT_USER_NAME_VAL='finagent'
+            [ -z "$AGENT_GIT_USER_EMAIL_VAL" ] && AGENT_GIT_USER_EMAIL_VAL='finagent@local'
 
             set -x
             if ! sudo docker run -d \
@@ -94,7 +85,17 @@ jobs:
               -p 127.0.0.1:8090:8090 \
               -v /opt/fruit-thrower/.code_index-fin-kit:/app/.code_index-fin-kit \
               -v /opt/fruit-thrower/.tool_builder:/app/.tool_builder \
-              --env-file "$TMP_ENV" \
+              -e FRUIT_TOOL_BUILDER_CMD="$FRUIT_TOOL_BUILDER_CMD_VAL" \
+              -e FRUIT_TOOL_TRACE_LOG="$FRUIT_TOOL_TRACE_LOG_VAL" \
+              -e AGENT_GITHUB_TOKEN="$AGENT_GITHUB_TOKEN_VAL" \
+              -e AGENT_GITHUB_TOKEN_FIN_KIT="$AGENT_GITHUB_TOKEN_FIN_KIT_VAL" \
+              -e AGENT_GITHUB_REPO="$AGENT_GITHUB_REPO_VAL" \
+              -e AGENT_GITHUB_REPO_FIN_KIT="$AGENT_GITHUB_REPO_FIN_KIT_VAL" \
+              -e AGENT_PR_BASE="$AGENT_PR_BASE_VAL" \
+              -e AGENT_PR_BASE_FIN_KIT="$AGENT_PR_BASE_FIN_KIT_VAL" \
+              -e AGENT_AUTO_PR="$AGENT_AUTO_PR_VAL" \
+              -e AGENT_GIT_USER_NAME="$AGENT_GIT_USER_NAME_VAL" \
+              -e AGENT_GIT_USER_EMAIL="$AGENT_GIT_USER_EMAIL_VAL" \
               "$IMAGE"; then
               set +x
               echo "docker run failed; dumping diagnostics"
@@ -105,9 +106,6 @@ jobs:
               exit 1
             fi
             set +x
-
-            # cleanup runtime env file from host disk
-            sudo shred -u "$TMP_ENV" || sudo rm -f "$TMP_ENV"
 
             sleep 3
             sudo docker ps --filter "name=${CONTAINER_NAME}" --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
