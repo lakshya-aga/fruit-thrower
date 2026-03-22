@@ -28,6 +28,9 @@ def configure_authenticated_remote(repo_root: Path, repo_slug: str, token_env: s
     if not token:
         return False
 
+    # Remove stale Actions checkout auth header that can override PAT auth inside containers.
+    subprocess.run(["git", "config", "--unset-all", "http.https://github.com/.extraheader"], cwd=repo_root)
+
     owner, name = repo_slug.split("/", 1)
     encoded = quote(token, safe="")
     # Use token-auth username compatible with PAT/GitHub App tokens.
