@@ -42,9 +42,18 @@ jobs:
               fi
             fi
 
+            # Stop legacy host service if it is still bound to 127.0.0.1:8090
+            sudo systemctl stop fruit-thrower || true
+
             if sudo docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
               sudo docker stop "$CONTAINER_NAME" || true
               sudo docker rm "$CONTAINER_NAME" || true
+            fi
+
+            # Safety: free host port if another process is listening
+            PID_ON_8090=$(sudo lsof -t -iTCP:8090 -sTCP:LISTEN || true)
+            if [ -n "$PID_ON_8090" ]; then
+              sudo kill -9 $PID_ON_8090 || true
             fi
 
             ENV_FILE_ARG=""
