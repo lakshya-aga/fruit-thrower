@@ -28,23 +28,23 @@ jobs:
             IMAGE="ghcr.io/${{ github.repository_owner }}/fruit-thrower:latest"
             CONTAINER_NAME="fruit-thrower"
 
-            mkdir -p /opt/fruit-thrower/.code_index-fin-kit
-            mkdir -p /opt/fruit-thrower/.tool_builder
+            sudo mkdir -p /opt/fruit-thrower/.code_index-fin-kit
+            sudo mkdir -p /opt/fruit-thrower/.tool_builder
 
             # Public GHCR first (no auth). Fallback to auth only if configured.
-            if ! docker pull "$IMAGE"; then
+            if ! sudo docker pull "$IMAGE"; then
               if [ -n "${{ secrets.GHCR_USERNAME }}" ] && [ -n "${{ secrets.GHCR_PAT }}" ]; then
-                echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
-                docker pull "$IMAGE"
+                echo "${{ secrets.GHCR_PAT }}" | sudo docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
+                sudo docker pull "$IMAGE"
               else
                 echo "Anonymous pull failed and GHCR creds are not configured."
                 exit 1
               fi
             fi
 
-            if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
-              docker stop "$CONTAINER_NAME" || true
-              docker rm "$CONTAINER_NAME" || true
+            if sudo docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+              sudo docker stop "$CONTAINER_NAME" || true
+              sudo docker rm "$CONTAINER_NAME" || true
             fi
 
             ENV_FILE_ARG=""
@@ -52,7 +52,7 @@ jobs:
               ENV_FILE_ARG="--env-file /etc/fruit-thrower/env"
             fi
 
-            docker run -d \
+            sudo docker run -d \
               --name "$CONTAINER_NAME" \
               --restart unless-stopped \
               -p 127.0.0.1:8090:8090 \
@@ -62,4 +62,4 @@ jobs:
               "$IMAGE"
 
             sleep 3
-            docker ps --filter "name=${CONTAINER_NAME}" --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
+            sudo docker ps --filter "name=${CONTAINER_NAME}" --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
