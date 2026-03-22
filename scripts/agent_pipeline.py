@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from urllib.parse import quote
 
 import requests
 
@@ -19,6 +20,20 @@ REPO = Path(__file__).resolve().parents[1]
 
 def run(cmd: list[str]) -> None:
     subprocess.run(cmd, check=True, cwd=REPO)
+
+
+def configure_authenticated_remote() -> bool:
+    """If AGENT_GITHUB_TOKEN is present, set authenticated HTTPS origin for push."""
+    token = os.environ.get("AGENT_GITHUB_TOKEN", "").strip()
+    if not token:
+        return False
+
+    repo = os.environ.get("AGENT_GITHUB_REPO", "lakshya-aga/fruit-thrower").strip()
+    owner, name = repo.split("/", 1)
+    encoded = quote(token, safe="")
+    auth_url = f"https://{owner}:{encoded}@github.com/{owner}/{name}.git"
+    run(["git", "remote", "set-url", "origin", auth_url])
+    return True
 
 
 def triage(spec: dict) -> tuple[bool, str]:
@@ -128,8 +143,13 @@ def main() -> None:
     apply_changes(spec, request_id)
     run(["git", "add", spec["module_path"], "AGENT_REQUESTS.md"])
     run(["git", "commit", "-m", f"agent: implement requested function {spec['tool_name']} ({request_id})"])
+    used_auth_remote = False
     if args.push:
+        used_auth_remote = configure_authenticated_remote()
         run(["git", "push", "-u", "origin", "agent"])
+        if used_auth_remote:
+            repo = os.environ.get("AGENT_GITHUB_REPO", "lakshya-aga/fruit-thrower").strip()
+            run(["git", "remote", "set-url", "origin", f"https://github.com/{repo}.git"])
 
     pr_url = maybe_create_pr(request_id, spec["tool_name"]) if args.push else None
     report["branch"] = "agent"
