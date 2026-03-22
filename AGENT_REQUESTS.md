@@ -10,3 +10,9 @@
 - module_path: `fin_kit/signals/rolling.py`
 - summary: Compute rolling z-score with optional min periods and ddof.
 - status: implemented on agent branch (pending PR review)
+
+## 20260322T100354Z-45d1b374
+- tool_name: `calculate_rolling_zscore_v2`
+- module_path: `fin_kit/signals/rolling.py`
+- summary: Compute rolling z-score with optional min periods and ddof.
+- status: implemented on agent branch (pending PR review)
