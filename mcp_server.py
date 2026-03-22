@@ -40,10 +40,23 @@ from vector_store import CodeVectorStore, SimpleTFIDFStore
 
 
 _REQUESTS_DIR = Path(os.environ.get("FRUIT_TOOL_REQUESTS_DIR", ".tool_builder/requests"))
+_TRACE_LOG = Path(os.environ.get("FRUIT_TOOL_TRACE_LOG", ".tool_builder/trace.jsonl"))
 _DEFAULT_BUILDER_PROMPT = (
     "Implement the requested fin-kit/library function and integrate discoverability in fruit-thrower. "
     "Use request spec JSON, add/update code, tests/docs, then commit to agent branch."
 )
+
+
+def _trace(event: str, request_id: str, **fields) -> None:
+    _TRACE_LOG.parent.mkdir(parents=True, exist_ok=True)
+    rec = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "event": event,
+        "request_id": request_id,
+        **fields,
+    }
+    with _TRACE_LOG.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(rec) + "\n")
 
 
 def _create_tool_request(arguments: dict) -> dict:
@@ -69,6 +82,13 @@ def _create_tool_request(arguments: dict) -> dict:
         "notes": arguments.get("notes", ""),
     }
     request_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    _trace(
+        "request_saved",
+        request_id,
+        tool_name=tool_name,
+        module_path=module_path,
+        request_file=str(request_file),
+    )
 
     builder_cmd = os.environ.get("FRUIT_TOOL_BUILDER_CMD", "").strip()
     spawned = False
@@ -78,8 +98,12 @@ def _create_tool_request(arguments: dict) -> dict:
         try:
             subprocess.Popen(cmd, shell=True, cwd=str(Path(__file__).resolve().parent))
             spawned = True
+            _trace("builder_spawned", request_id, command=cmd)
         except Exception as exc:  # pragma: no cover
             spawn_error = str(exc)
+            _trace("builder_spawn_failed", request_id, command=cmd, error=spawn_error)
+    else:
+        _trace("builder_not_configured", request_id)
 
     return {
         "request_id": request_id,
@@ -297,8 +321,11 @@ def build_server(index_dir: str, repo_root: str) -> "Server":
             try:
                 req = _create_tool_request(arguments)
             except ValueError as exc:
+                rid = datetime.now(timezone.utc).strftime("invalid-%Y%m%dT%H%M%SZ")
+                _trace("request_invalid", rid, error=str(exc), provided_keys=sorted(list(arguments.keys())))
                 return [types.TextContent(type="text", text=f"Invalid request: {exc}")]
 
+            _trace("request_accepted", req["request_id"], builder_spawned=req["builder_spawned"])
             status = "✅ builder agent spawn requested" if req["builder_spawned"] else "ℹ️ request queued"
             text = (
                 f"# Tool addition request accepted\n\n"

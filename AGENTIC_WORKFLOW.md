@@ -4,7 +4,8 @@
 1. User calls MCP tool `request_tool_addition`.
 2. Request JSON is stored in `.tool_builder/requests/<id>.json`.
 3. Optional builder command (`FRUIT_TOOL_BUILDER_CMD`) is spawned.
-4. Builder script (`scripts/agent_pipeline.py`) triages viability.
+4. Every step is logged to `.tool_builder/trace.jsonl` (override with `FRUIT_TOOL_TRACE_LOG`).
+5. Builder script (`scripts/agent_pipeline.py`) triages viability.
 5. If viable, implementation is committed to `agent` branch.
 6. Human reviews PR and merges.
 7. Post-merge: pull + reindex to update MCP responses.
