@@ -30,6 +30,31 @@ jobs:
             IMAGE="ghcr.io/${{ github.repository_owner }}/fruit-thrower:latest"
             CONTAINER_NAME="fruit-thrower"
 
+            GHCR_USERNAME='${{ secrets.GHCR_USERNAME }}'
+            GHCR_PAT='${{ secrets.GHCR_PAT }}'
+
+            FRUIT_TOOL_BUILDER_CMD_VAL='${{ secrets.FRUIT_TOOL_BUILDER_CMD }}'
+            FRUIT_TOOL_TRACE_LOG_VAL='${{ secrets.FRUIT_TOOL_TRACE_LOG }}'
+            AGENT_GITHUB_TOKEN_VAL='${{ secrets.AGENT_GITHUB_TOKEN }}'
+            AGENT_GITHUB_TOKEN_FIN_KIT_VAL='${{ secrets.AGENT_GITHUB_TOKEN_FIN_KIT }}'
+            AGENT_GITHUB_REPO_VAL='${{ secrets.AGENT_GITHUB_REPO }}'
+            AGENT_GITHUB_REPO_FIN_KIT_VAL='${{ secrets.AGENT_GITHUB_REPO_FIN_KIT }}'
+            AGENT_PR_BASE_VAL='${{ secrets.AGENT_PR_BASE }}'
+            AGENT_PR_BASE_FIN_KIT_VAL='${{ secrets.AGENT_PR_BASE_FIN_KIT }}'
+            AGENT_AUTO_PR_VAL='${{ secrets.AGENT_AUTO_PR }}'
+            AGENT_GIT_USER_NAME_VAL='${{ secrets.AGENT_GIT_USER_NAME }}'
+            AGENT_GIT_USER_EMAIL_VAL='${{ secrets.AGENT_GIT_USER_EMAIL }}'
+
+            : "${FRUIT_TOOL_BUILDER_CMD_VAL:=python3 scripts/agent_pipeline.py --request {request_file} --push}"
+            : "${FRUIT_TOOL_TRACE_LOG_VAL:=.tool_builder/trace.jsonl}"
+            : "${AGENT_GITHUB_REPO_VAL:=lakshya-aga/fruit-thrower}"
+            : "${AGENT_GITHUB_REPO_FIN_KIT_VAL:=lakshya-aga/fin-kit}"
+            : "${AGENT_PR_BASE_VAL:=deploy}"
+            : "${AGENT_PR_BASE_FIN_KIT_VAL:=main}"
+            : "${AGENT_AUTO_PR_VAL:=0}"
+            : "${AGENT_GIT_USER_NAME_VAL:=finagent}"
+            : "${AGENT_GIT_USER_EMAIL_VAL:=finagent@local}"
+
             echo "[deploy] actor=${{ github.actor }} repo=${{ github.repository }} sha=${{ github.sha }}"
             echo "[deploy] host=$(hostname) user=$(whoami)"
             uname -a || true
@@ -38,10 +63,10 @@ jobs:
             sudo mkdir -p /opt/fruit-thrower/.code_index-fin-kit
             sudo mkdir -p /opt/fruit-thrower/.tool_builder
 
-            # Public GHCR first (no auth). Fallback to auth only if configured.
+            # Public GHCR first (no auth). Fallback to auth only if credentials are present.
             if ! sudo docker pull "$IMAGE"; then
-              if [ -n "${{ secrets.GHCR_USERNAME }}" ] && [ -n "${{ secrets.GHCR_PAT }}" ]; then
-                echo "${{ secrets.GHCR_PAT }}" | sudo docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
+              if [ -n "$GHCR_USERNAME" ] && [ -n "$GHCR_PAT" ]; then
+                printf '%s\n' "$GHCR_PAT" | sudo docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
                 sudo docker pull "$IMAGE"
               else
                 echo "Anonymous pull failed and GHCR creds are not configured."
@@ -59,34 +84,11 @@ jobs:
             fi
 
             # Safety: free host port if another process is listening
-            PID_ON_8090=$(sudo lsof -t -iTCP:8090 -sTCP:LISTEN || true)
+            PID_ON_8090="$(sudo lsof -t -iTCP:8090 -sTCP:LISTEN || true)"
             if [ -n "$PID_ON_8090" ]; then
               sudo kill -9 $PID_ON_8090 || true
             fi
 
-            FRUIT_TOOL_BUILDER_CMD_VAL='${{ secrets.FRUIT_TOOL_BUILDER_CMD }}'
-            FRUIT_TOOL_TRACE_LOG_VAL='${{ secrets.FRUIT_TOOL_TRACE_LOG }}'
-            AGENT_GITHUB_TOKEN_VAL='${{ secrets.AGENT_GITHUB_TOKEN }}'
-            AGENT_GITHUB_TOKEN_FIN_KIT_VAL='${{ secrets.AGENT_GITHUB_TOKEN_FIN_KIT }}'
-            AGENT_GITHUB_REPO_VAL='${{ secrets.AGENT_GITHUB_REPO }}'
-            AGENT_GITHUB_REPO_FIN_KIT_VAL='${{ secrets.AGENT_GITHUB_REPO_FIN_KIT }}'
-            AGENT_PR_BASE_VAL='${{ secrets.AGENT_PR_BASE }}'
-            AGENT_PR_BASE_FIN_KIT_VAL='${{ secrets.AGENT_PR_BASE_FIN_KIT }}'
-            AGENT_AUTO_PR_VAL='${{ secrets.AGENT_AUTO_PR }}'
-            AGENT_GIT_USER_NAME_VAL='${{ secrets.AGENT_GIT_USER_NAME }}'
-            AGENT_GIT_USER_EMAIL_VAL='${{ secrets.AGENT_GIT_USER_EMAIL }}'
-
-            [ -z "$FRUIT_TOOL_BUILDER_CMD_VAL" ] && FRUIT_TOOL_BUILDER_CMD_VAL='python3 scripts/agent_pipeline.py --request {request_file} --push'
-            [ -z "$FRUIT_TOOL_TRACE_LOG_VAL" ] && FRUIT_TOOL_TRACE_LOG_VAL='.tool_builder/trace.jsonl'
-            [ -z "$AGENT_GITHUB_REPO_VAL" ] && AGENT_GITHUB_REPO_VAL='lakshya-aga/fruit-thrower'
-            [ -z "$AGENT_GITHUB_REPO_FIN_KIT_VAL" ] && AGENT_GITHUB_REPO_FIN_KIT_VAL='lakshya-aga/fin-kit'
-            [ -z "$AGENT_PR_BASE_VAL" ] && AGENT_PR_BASE_VAL='deploy'
-            [ -z "$AGENT_PR_BASE_FIN_KIT_VAL" ] && AGENT_PR_BASE_FIN_KIT_VAL='main'
-            [ -z "$AGENT_AUTO_PR_VAL" ] && AGENT_AUTO_PR_VAL='0'
-            [ -z "$AGENT_GIT_USER_NAME_VAL" ] && AGENT_GIT_USER_NAME_VAL='finagent'
-            [ -z "$AGENT_GIT_USER_EMAIL_VAL" ] && AGENT_GIT_USER_EMAIL_VAL='finagent@local'
-
-            set -x
             if ! sudo docker run -d \
               --name "$CONTAINER_NAME" \
               --restart unless-stopped \
