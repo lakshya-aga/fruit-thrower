@@ -35,6 +35,14 @@ def configure_authenticated_remote(repo_root: Path, repo_slug: str) -> bool:
     return True
 
 
+def configure_git_identity(repo_root: Path) -> None:
+    """Ensure commits inside container have a deterministic identity."""
+    name = os.environ.get("AGENT_GIT_USER_NAME", "finagent").strip()
+    email = os.environ.get("AGENT_GIT_USER_EMAIL", "finagent@local").strip()
+    run(["git", "config", "user.name", name], cwd=repo_root)
+    run(["git", "config", "user.email", email], cwd=repo_root)
+
+
 def triage(spec: dict) -> tuple[bool, str]:
     required = ["tool_name", "module_path", "summary", "code"]
     missing = [k for k in required if not str(spec.get(k, "")).strip()]
@@ -150,6 +158,7 @@ def main() -> None:
         pr_base = os.environ.get("AGENT_PR_BASE", "deploy").strip()
 
     run(["git", "checkout", "-B", "agent"], cwd=repo_root)
+    configure_git_identity(repo_root)
     apply_changes(spec, request_id, repo_root=repo_root, module_rel=module_rel)
     run(["git", "add", module_rel, "AGENT_REQUESTS.md"], cwd=repo_root)
     run(["git", "commit", "-m", f"agent: implement requested function {spec['tool_name']} ({request_id})"], cwd=repo_root)
