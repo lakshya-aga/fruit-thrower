@@ -59,14 +59,32 @@ jobs:
             # Build runtime-only env file from GitHub Secrets (not baked into image)
             TMP_ENV="/tmp/fruit-thrower.env"
             sudo rm -f "$TMP_ENV"
-            printf '%s\n' "FRUIT_TOOL_BUILDER_CMD=${{ secrets.FRUIT_TOOL_BUILDER_CMD }}" | sudo tee -a "$TMP_ENV" >/dev/null
-            printf '%s\n' "FRUIT_TOOL_TRACE_LOG=${{ secrets.FRUIT_TOOL_TRACE_LOG }}" | sudo tee -a "$TMP_ENV" >/dev/null
-            printf '%s\n' "AGENT_GITHUB_TOKEN=${{ secrets.AGENT_GITHUB_TOKEN }}" | sudo tee -a "$TMP_ENV" >/dev/null
-            printf '%s\n' "AGENT_GITHUB_REPO=${{ secrets.AGENT_GITHUB_REPO }}" | sudo tee -a "$TMP_ENV" >/dev/null
-            printf '%s\n' "AGENT_GITHUB_REPO_FIN_KIT=${{ secrets.AGENT_GITHUB_REPO_FIN_KIT }}" | sudo tee -a "$TMP_ENV" >/dev/null
-            printf '%s\n' "AGENT_PR_BASE=${{ secrets.AGENT_PR_BASE }}" | sudo tee -a "$TMP_ENV" >/dev/null
-            printf '%s\n' "AGENT_PR_BASE_FIN_KIT=${{ secrets.AGENT_PR_BASE_FIN_KIT }}" | sudo tee -a "$TMP_ENV" >/dev/null
-            printf '%s\n' "AGENT_AUTO_PR=${{ secrets.AGENT_AUTO_PR }}" | sudo tee -a "$TMP_ENV" >/dev/null
+
+            FRUIT_TOOL_BUILDER_CMD_VAL='${{ secrets.FRUIT_TOOL_BUILDER_CMD }}'
+            FRUIT_TOOL_TRACE_LOG_VAL='${{ secrets.FRUIT_TOOL_TRACE_LOG }}'
+            AGENT_GITHUB_TOKEN_VAL='${{ secrets.AGENT_GITHUB_TOKEN }}'
+            AGENT_GITHUB_REPO_VAL='${{ secrets.AGENT_GITHUB_REPO }}'
+            AGENT_GITHUB_REPO_FIN_KIT_VAL='${{ secrets.AGENT_GITHUB_REPO_FIN_KIT }}'
+            AGENT_PR_BASE_VAL='${{ secrets.AGENT_PR_BASE }}'
+            AGENT_PR_BASE_FIN_KIT_VAL='${{ secrets.AGENT_PR_BASE_FIN_KIT }}'
+            AGENT_AUTO_PR_VAL='${{ secrets.AGENT_AUTO_PR }}'
+
+            [ -z "$FRUIT_TOOL_BUILDER_CMD_VAL" ] && FRUIT_TOOL_BUILDER_CMD_VAL='python3 scripts/agent_pipeline.py --request {request_file} --push'
+            [ -z "$FRUIT_TOOL_TRACE_LOG_VAL" ] && FRUIT_TOOL_TRACE_LOG_VAL='.tool_builder/trace.jsonl'
+            [ -z "$AGENT_GITHUB_REPO_VAL" ] && AGENT_GITHUB_REPO_VAL='lakshya-aga/fruit-thrower'
+            [ -z "$AGENT_GITHUB_REPO_FIN_KIT_VAL" ] && AGENT_GITHUB_REPO_FIN_KIT_VAL='lakshya-aga/fin-kit'
+            [ -z "$AGENT_PR_BASE_VAL" ] && AGENT_PR_BASE_VAL='deploy'
+            [ -z "$AGENT_PR_BASE_FIN_KIT_VAL" ] && AGENT_PR_BASE_FIN_KIT_VAL='main'
+            [ -z "$AGENT_AUTO_PR_VAL" ] && AGENT_AUTO_PR_VAL='0'
+
+            printf '%s\n' "FRUIT_TOOL_BUILDER_CMD=$FRUIT_TOOL_BUILDER_CMD_VAL" | sudo tee -a "$TMP_ENV" >/dev/null
+            printf '%s\n' "FRUIT_TOOL_TRACE_LOG=$FRUIT_TOOL_TRACE_LOG_VAL" | sudo tee -a "$TMP_ENV" >/dev/null
+            printf '%s\n' "AGENT_GITHUB_TOKEN=$AGENT_GITHUB_TOKEN_VAL" | sudo tee -a "$TMP_ENV" >/dev/null
+            printf '%s\n' "AGENT_GITHUB_REPO=$AGENT_GITHUB_REPO_VAL" | sudo tee -a "$TMP_ENV" >/dev/null
+            printf '%s\n' "AGENT_GITHUB_REPO_FIN_KIT=$AGENT_GITHUB_REPO_FIN_KIT_VAL" | sudo tee -a "$TMP_ENV" >/dev/null
+            printf '%s\n' "AGENT_PR_BASE=$AGENT_PR_BASE_VAL" | sudo tee -a "$TMP_ENV" >/dev/null
+            printf '%s\n' "AGENT_PR_BASE_FIN_KIT=$AGENT_PR_BASE_FIN_KIT_VAL" | sudo tee -a "$TMP_ENV" >/dev/null
+            printf '%s\n' "AGENT_AUTO_PR=$AGENT_AUTO_PR_VAL" | sudo tee -a "$TMP_ENV" >/dev/null
             sudo chmod 600 "$TMP_ENV"
 
             sudo docker run -d \
