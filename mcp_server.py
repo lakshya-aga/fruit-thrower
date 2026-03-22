@@ -93,12 +93,32 @@ def _create_tool_request(arguments: dict) -> dict:
     builder_cmd = os.environ.get("FRUIT_TOOL_BUILDER_CMD", "").strip()
     spawned = False
     spawn_error = None
+    builder_report = None
     if builder_cmd:
         cmd = builder_cmd.format(request_file=str(request_file), request_id=request_id)
         try:
-            subprocess.Popen(cmd, shell=True, cwd=str(Path(__file__).resolve().parent))
-            spawned = True
-            _trace("builder_spawned", request_id, command=cmd)
+            proc = subprocess.run(
+                cmd,
+                shell=True,
+                cwd=str(Path(__file__).resolve().parent),
+                capture_output=True,
+                text=True,
+            )
+            spawned = proc.returncode == 0
+            _trace(
+                "builder_spawned" if spawned else "builder_run_failed",
+                request_id,
+                command=cmd,
+                returncode=proc.returncode,
+                stdout=(proc.stdout or "")[-2000:],
+                stderr=(proc.stderr or "")[-2000:],
+            )
+            rep = Path(".tool_builder") / "reports" / f"{request_id}.json"
+            if rep.exists():
+                try:
+                    builder_report = json.loads(rep.read_text(encoding="utf-8"))
+                except Exception:
+                    builder_report = None
         except Exception as exc:  # pragma: no cover
             spawn_error = str(exc)
             _trace("builder_spawn_failed", request_id, command=cmd, error=spawn_error)
@@ -111,6 +131,7 @@ def _create_tool_request(arguments: dict) -> dict:
         "builder_spawned": spawned,
         "builder_command": builder_cmd or None,
         "spawn_error": spawn_error,
+        "builder_report": builder_report,
     }
 
 
@@ -334,8 +355,15 @@ def build_server(index_dir: str, repo_root: str) -> "Server":
                 f"- Request ID: `{req['request_id']}`\n"
                 f"- Request file: `{req['request_file']}`\n"
                 f"- Status: {status}\n"
-                f"- Builder command: `{req['builder_command'] or '(unset)'}`\n\n"
-                f"Set `FRUIT_TOOL_BUILDER_CMD` to auto-run a builder agent using request spec.\n"
+                f"- Builder command: `{req['builder_command'] or '(unset)'}`\n"
+            )
+            if req.get("builder_report"):
+                br = req["builder_report"]
+                text += f"- Viability: `{br.get('viable')}` ({br.get('reason')})\n"
+                if br.get("pr_url"):
+                    text += f"- Pull request: {br['pr_url']}\n"
+            text += (
+                f"\nSet `FRUIT_TOOL_BUILDER_CMD` to auto-run a builder agent using request spec.\n"
                 f"Prompt hint: {_DEFAULT_BUILDER_PROMPT}\n"
             )
             if req["spawn_error"]:

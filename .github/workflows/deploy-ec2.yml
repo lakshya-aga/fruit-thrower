@@ -31,14 +31,16 @@ jobs:
             mkdir -p /opt/fruit-thrower/.code_index-fin-kit
             mkdir -p /opt/fruit-thrower/.tool_builder
 
-            if [ -n "${{ secrets.GHCR_USERNAME }}" ] && [ -n "${{ secrets.GHCR_PAT }}" ]; then
-              echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
-            else
-              echo "GHCR credentials missing (GHCR_USERNAME/GHCR_PAT)."
-              exit 1
+            # Public GHCR first (no auth). Fallback to auth only if configured.
+            if ! docker pull "$IMAGE"; then
+              if [ -n "${{ secrets.GHCR_USERNAME }}" ] && [ -n "${{ secrets.GHCR_PAT }}" ]; then
+                echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
+                docker pull "$IMAGE"
+              else
+                echo "Anonymous pull failed and GHCR creds are not configured."
+                exit 1
+              fi
             fi
-
-            docker pull "$IMAGE"
 
             if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
               docker stop "$CONTAINER_NAME" || true
