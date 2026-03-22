@@ -1,9 +1,8 @@
 """
 vector_store.py — Embed and persist parsed code units using ChromaDB.
 
-Uses Anthropic's text embeddings to represent each code unit, stored in a
-local ChromaDB collection. Supports upsert (idempotent re-indexing) and
-semantic search.
+Embeddings are handled by ChromaDB's default embedding function (sentence-transformer),
+with persistence on disk. Supports upsert (idempotent re-indexing) and semantic search.
 """
 import json
 import os
@@ -16,24 +15,17 @@ try:
 except ImportError:
     _CHROMA_AVAILABLE = False
 
-try:
-    import anthropic as _anthropic
-    _ANTHROPIC_AVAILABLE = True
-except ImportError:
-    _ANTHROPIC_AVAILABLE = False
-
 from parser import ParsedUnit
 
 COLLECTION_NAME = "code_units"
-EMBED_MODEL = "voyage-code-3"  # Anthropic's code embedding model via voyage
 
 
 class CodeVectorStore:
     """
     Persistent vector store for code units.
 
-    Wraps ChromaDB with Anthropic embeddings to provide semantic search
-    over a repository's functions, classes, and modules.
+    Uses ChromaDB's default embedding function for semantic retrieval over
+    repository functions/classes/modules.
 
     Example:
         >>> store = CodeVectorStore(persist_dir="./.code_index")
@@ -46,16 +38,11 @@ class CodeVectorStore:
         Initialise the vector store.
 
         :param persist_dir: (str) Directory where ChromaDB persists data.
-        :param api_key: (str | None) Anthropic API key (or set ANTHROPIC_API_KEY).
+        :param api_key: unused (kept for backward compatibility).
         """
         if not _CHROMA_AVAILABLE:
             raise ImportError("pip install chromadb")
-        if not _ANTHROPIC_AVAILABLE:
-            raise ImportError("pip install anthropic")
 
-        self._client_api = _anthropic.Anthropic(
-            api_key=api_key or os.environ.get("ANTHROPIC_API_KEY")
-        )
         self._db = chromadb.PersistentClient(
             path=persist_dir,
             settings=Settings(anonymized_telemetry=False),
@@ -64,20 +51,6 @@ class CodeVectorStore:
             name=COLLECTION_NAME,
             metadata={"hnsw:space": "cosine"},
         )
-
-    def _embed(self, texts: list[str]) -> list[list[float]]:
-        """Embed a batch of texts using Anthropic's embedding API."""
-        # Anthropic uses the voyage-* models for embeddings
-        response = self._client_api.beta.messages.batches  # placeholder
-        # Use the messages.create with embeddings endpoint
-        # Note: Anthropic embedding API via voyage integration
-        import anthropic
-        client = anthropic.Anthropic()
-        result = client.beta.embeddings.create(
-            model=EMBED_MODEL,
-            input=texts,
-        )
-        return [item.embedding for item in result.data]
 
     def upsert(self, units: list[ParsedUnit], batch_size: int = 50) -> int:
         """
@@ -91,10 +64,8 @@ class CodeVectorStore:
         for i in range(0, len(units), batch_size):
             batch = units[i : i + batch_size]
             texts = [u.to_embed_text() for u in batch]
-            embeddings = self._embed(texts)
             self._collection.upsert(
                 ids=[u.id for u in batch],
-                embeddings=embeddings,
                 documents=texts,
                 metadatas=[{
                     "kind": u.kind,
@@ -129,27 +100,28 @@ class CodeVectorStore:
         :param module_filter: (str | None) Filter by module prefix, e.g. "filters".
         :return: (list[dict]) Ranked results with metadata and relevance distance.
         """
-        query_embedding = self._embed([query])[0]
         where: dict = {}
         if kind_filter:
             where["kind"] = {"$eq": kind_filter}
-        if module_filter:
-            where["module"] = {"$contains": module_filter}
 
         results = self._collection.query(
-            query_embeddings=[query_embedding],
-            n_results=n_results,
+            query_texts=[query],
+            n_results=max(n_results * 3, 15) if module_filter else n_results,
             where=where if where else None,
             include=["documents", "metadatas", "distances"],
         )
 
         hits = []
         for i, meta in enumerate(results["metadatas"][0]):
+            if module_filter and module_filter not in meta.get("module", ""):
+                continue
             hits.append({
                 "score": 1 - results["distances"][0][i],  # cosine sim
                 "id": results["ids"][0][i],
                 **meta,
             })
+            if len(hits) >= n_results:
+                break
         return hits
 
     def count(self) -> int:

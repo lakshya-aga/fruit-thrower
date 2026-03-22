@@ -1,0 +1,3 @@
+[submodule "fin-kit"]
+	path = fin-kit
+	url = https://github.com/lakshya-aga/fin-kit.git
