@@ -86,6 +86,46 @@ jobs:
             [ -z "$AGENT_GIT_USER_NAME_VAL" ] && AGENT_GIT_USER_NAME_VAL='finagent'
             [ -z "$AGENT_GIT_USER_EMAIL_VAL" ] && AGENT_GIT_USER_EMAIL_VAL='finagent@local'
 
+            # Required/optional runtime variable diagnostics
+            missing=0
+            check_required() {
+              local name="$1"
+              local value="$2"
+              if [ -z "$value" ]; then
+                echo "[deploy][missing][required] $name is empty"
+                missing=1
+              else
+                echo "[deploy][ok][required] $name is set"
+              fi
+            }
+            check_optional() {
+              local name="$1"
+              local value="$2"
+              if [ -z "$value" ]; then
+                echo "[deploy][missing][optional] $name is empty"
+              else
+                echo "[deploy][ok][optional] $name is set"
+              fi
+            }
+
+            check_required "AGENT_GITHUB_TOKEN" "$AGENT_GITHUB_TOKEN_VAL"
+            check_required "AGENT_GITHUB_TOKEN_FIN_KIT" "$AGENT_GITHUB_TOKEN_FIN_KIT_VAL"
+            check_required "AGENT_GITHUB_REPO" "$AGENT_GITHUB_REPO_VAL"
+            check_required "AGENT_GITHUB_REPO_FIN_KIT" "$AGENT_GITHUB_REPO_FIN_KIT_VAL"
+            check_required "FRUIT_TOOL_BUILDER_CMD" "$FRUIT_TOOL_BUILDER_CMD_VAL"
+
+            check_optional "FRUIT_TOOL_TRACE_LOG" "$FRUIT_TOOL_TRACE_LOG_VAL"
+            check_optional "AGENT_PR_BASE" "$AGENT_PR_BASE_VAL"
+            check_optional "AGENT_PR_BASE_FIN_KIT" "$AGENT_PR_BASE_FIN_KIT_VAL"
+            check_optional "AGENT_AUTO_PR" "$AGENT_AUTO_PR_VAL"
+            check_optional "AGENT_GIT_USER_NAME" "$AGENT_GIT_USER_NAME_VAL"
+            check_optional "AGENT_GIT_USER_EMAIL" "$AGENT_GIT_USER_EMAIL_VAL"
+
+            if [ "$missing" -ne 0 ]; then
+              echo "[deploy] required variables missing; aborting deploy"
+              exit 1
+            fi
+
             set -x
             if ! sudo docker run -d \
               --name "$CONTAINER_NAME" \
