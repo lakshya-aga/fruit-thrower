@@ -22,9 +22,9 @@ def run(cmd: list[str], cwd: Path) -> None:
     subprocess.run(cmd, check=True, cwd=cwd)
 
 
-def configure_authenticated_remote(repo_root: Path, repo_slug: str) -> bool:
-    """If AGENT_GITHUB_TOKEN is present, set authenticated HTTPS origin for push."""
-    token = os.environ.get("AGENT_GITHUB_TOKEN", "").strip()
+def configure_authenticated_remote(repo_root: Path, repo_slug: str, token_env: str = "AGENT_GITHUB_TOKEN") -> bool:
+    """Set authenticated HTTPS origin for push if token env is present."""
+    token = os.environ.get(token_env, "").strip() or os.environ.get("AGENT_GITHUB_TOKEN", "").strip()
     if not token:
         return False
 
@@ -151,11 +151,13 @@ def main() -> None:
         module_rel = module_path[len("fin-kit/"):]
         repo_slug = os.environ.get("AGENT_GITHUB_REPO_FIN_KIT", "lakshya-aga/fin-kit").strip()
         pr_base = os.environ.get("AGENT_PR_BASE_FIN_KIT", "main").strip()
+        token_env = "AGENT_GITHUB_TOKEN_FIN_KIT"
     else:
         repo_root = REPO
         module_rel = module_path
         repo_slug = os.environ.get("AGENT_GITHUB_REPO", "lakshya-aga/fruit-thrower").strip()
         pr_base = os.environ.get("AGENT_PR_BASE", "deploy").strip()
+        token_env = "AGENT_GITHUB_TOKEN"
 
     run(["git", "checkout", "-B", "agent"], cwd=repo_root)
     configure_git_identity(repo_root)
@@ -164,7 +166,7 @@ def main() -> None:
     run(["git", "commit", "-m", f"agent: implement requested function {spec['tool_name']} ({request_id})"], cwd=repo_root)
     used_auth_remote = False
     if args.push:
-        used_auth_remote = configure_authenticated_remote(repo_root=repo_root, repo_slug=repo_slug)
+        used_auth_remote = configure_authenticated_remote(repo_root=repo_root, repo_slug=repo_slug, token_env=token_env)
         run(["git", "push", "-u", "origin", "agent"], cwd=repo_root)
         if used_auth_remote:
             run(["git", "remote", "set-url", "origin", f"https://github.com/{repo_slug}.git"], cwd=repo_root)
