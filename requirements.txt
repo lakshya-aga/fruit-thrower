@@ -1,0 +1,6 @@
+mcp>=1.26.0
+chromadb>=1.0.0
+scikit-learn>=1.4.0
+starlette>=0.37.0
+uvicorn>=0.30.0
+anyio>=4.0.0
