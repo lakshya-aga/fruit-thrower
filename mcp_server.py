@@ -225,6 +225,8 @@ def build_server(index_dir: str, repo_root: str) -> "Server":
                 name="request_tool_addition",
                 description=(
                     "Submit a proposed new internal library function/tool implementation. "
+                    "IMPORTANT: the request must be well-formed and paste-ready for the target repo "
+                    "(production-quality code block, module path, and clear summary). "
                     "The MCP stores a formal request spec and can spawn an external builder agent "
                     "(configured by FRUIT_TOOL_BUILDER_CMD) to implement on agent branch + docs."
                 ),
@@ -234,7 +236,7 @@ def build_server(index_dir: str, repo_root: str) -> "Server":
                         "tool_name": {"type": "string"},
                         "module_path": {"type": "string", "description": "Target path, e.g. fin_kit/signals/new_signal.py"},
                         "summary": {"type": "string"},
-                        "code": {"type": "string", "description": "Proposed Python code"},
+                        "code": {"type": "string", "description": "Proposed Python code, paste-ready for the repo (imports, function body, and sane defaults)."},
                         "tags": {"type": "array", "items": {"type": "string"}},
                         "example": {"type": "string"},
                         "notes": {"type": "string"}
