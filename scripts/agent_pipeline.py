@@ -30,7 +30,8 @@ def configure_authenticated_remote(repo_root: Path, repo_slug: str, token_env: s
 
     owner, name = repo_slug.split("/", 1)
     encoded = quote(token, safe="")
-    auth_url = f"https://{owner}:{encoded}@github.com/{owner}/{name}.git"
+    # Use token-auth username compatible with PAT/GitHub App tokens.
+    auth_url = f"https://x-access-token:{encoded}@github.com/{owner}/{name}.git"
     run(["git", "remote", "set-url", "origin", auth_url], cwd=repo_root)
     return True
 
