@@ -18,21 +18,20 @@ import requests
 REPO = Path(__file__).resolve().parents[1]
 
 
-def run(cmd: list[str]) -> None:
-    subprocess.run(cmd, check=True, cwd=REPO)
+def run(cmd: list[str], cwd: Path) -> None:
+    subprocess.run(cmd, check=True, cwd=cwd)
 
 
-def configure_authenticated_remote() -> bool:
+def configure_authenticated_remote(repo_root: Path, repo_slug: str) -> bool:
     """If AGENT_GITHUB_TOKEN is present, set authenticated HTTPS origin for push."""
     token = os.environ.get("AGENT_GITHUB_TOKEN", "").strip()
     if not token:
         return False
 
-    repo = os.environ.get("AGENT_GITHUB_REPO", "lakshya-aga/fruit-thrower").strip()
-    owner, name = repo.split("/", 1)
+    owner, name = repo_slug.split("/", 1)
     encoded = quote(token, safe="")
     auth_url = f"https://{owner}:{encoded}@github.com/{owner}/{name}.git"
-    run(["git", "remote", "set-url", "origin", auth_url])
+    run(["git", "remote", "set-url", "origin", auth_url], cwd=repo_root)
     return True
 
 
@@ -56,8 +55,8 @@ def triage(spec: dict) -> tuple[bool, str]:
     return True, "viable"
 
 
-def apply_changes(spec: dict, request_id: str) -> None:
-    target = REPO / spec["module_path"]
+def apply_changes(spec: dict, request_id: str, repo_root: Path, module_rel: str) -> None:
+    target = repo_root / module_rel
     target.parent.mkdir(parents=True, exist_ok=True)
     if not target.exists():
         target.write_text("", encoding="utf-8")
@@ -66,21 +65,20 @@ def apply_changes(spec: dict, request_id: str) -> None:
         f.write(f"\n\n# ---- agentic tool request {request_id} ----\n")
         f.write(spec["code"].rstrip() + "\n")
 
-    req_log = REPO / "AGENT_REQUESTS.md"
+    req_log = repo_root / "AGENT_REQUESTS.md"
     with req_log.open("a", encoding="utf-8") as f:
         f.write(
             f"\n## {request_id}\n"
             f"- tool_name: `{spec['tool_name']}`\n"
-            f"- module_path: `{spec['module_path']}`\n"
+            f"- module_path: `{module_rel}`\n"
             f"- summary: {spec['summary']}\n"
             f"- status: implemented on agent branch (pending PR review)\n"
         )
 
 
-def maybe_create_pr(request_id: str, tool_name: str) -> str | None:
+def maybe_create_pr(request_id: str, tool_name: str, repo_slug: str, base: str) -> str | None:
     token = os.environ.get("AGENT_GITHUB_TOKEN", "").strip()
-    repo = os.environ.get("AGENT_GITHUB_REPO", "lakshya-aga/fruit-thrower").strip()
-    base = os.environ.get("AGENT_PR_BASE", "deploy").strip()
+    repo = repo_slug
     if not token:
         return None
 
@@ -139,20 +137,33 @@ def main() -> None:
         print(f"Rejected: {reason}")
         return
 
-    run(["git", "checkout", "-B", "agent"])
-    apply_changes(spec, request_id)
-    run(["git", "add", spec["module_path"], "AGENT_REQUESTS.md"])
-    run(["git", "commit", "-m", f"agent: implement requested function {spec['tool_name']} ({request_id})"])
+    module_path = spec["module_path"].strip()
+    if module_path.startswith("fin-kit/"):
+        repo_root = REPO / "fin-kit"
+        module_rel = module_path[len("fin-kit/"):]
+        repo_slug = os.environ.get("AGENT_GITHUB_REPO_FIN_KIT", "lakshya-aga/fin-kit").strip()
+        pr_base = os.environ.get("AGENT_PR_BASE_FIN_KIT", "main").strip()
+    else:
+        repo_root = REPO
+        module_rel = module_path
+        repo_slug = os.environ.get("AGENT_GITHUB_REPO", "lakshya-aga/fruit-thrower").strip()
+        pr_base = os.environ.get("AGENT_PR_BASE", "deploy").strip()
+
+    run(["git", "checkout", "-B", "agent"], cwd=repo_root)
+    apply_changes(spec, request_id, repo_root=repo_root, module_rel=module_rel)
+    run(["git", "add", module_rel, "AGENT_REQUESTS.md"], cwd=repo_root)
+    run(["git", "commit", "-m", f"agent: implement requested function {spec['tool_name']} ({request_id})"], cwd=repo_root)
     used_auth_remote = False
     if args.push:
-        used_auth_remote = configure_authenticated_remote()
-        run(["git", "push", "-u", "origin", "agent"])
+        used_auth_remote = configure_authenticated_remote(repo_root=repo_root, repo_slug=repo_slug)
+        run(["git", "push", "-u", "origin", "agent"], cwd=repo_root)
         if used_auth_remote:
-            repo = os.environ.get("AGENT_GITHUB_REPO", "lakshya-aga/fruit-thrower").strip()
-            run(["git", "remote", "set-url", "origin", f"https://github.com/{repo}.git"])
+            run(["git", "remote", "set-url", "origin", f"https://github.com/{repo_slug}.git"], cwd=repo_root)
 
-    pr_url = maybe_create_pr(request_id, spec["tool_name"]) if args.push else None
+    auto_pr = os.environ.get("AGENT_AUTO_PR", "0") == "1"
+    pr_url = maybe_create_pr(request_id, spec["tool_name"], repo_slug=repo_slug, base=pr_base) if (args.push and auto_pr) else None
     report["branch"] = "agent"
+    report["repo"] = repo_slug
     report["pr_url"] = pr_url
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 

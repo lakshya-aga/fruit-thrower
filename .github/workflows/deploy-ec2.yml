@@ -56,10 +56,18 @@ jobs:
               sudo kill -9 $PID_ON_8090 || true
             fi
 
-            ENV_FILE_ARG=""
-            if [ -f /etc/fruit-thrower/env ]; then
-              ENV_FILE_ARG="--env-file /etc/fruit-thrower/env"
-            fi
+            # Build runtime-only env file from GitHub Secrets (not baked into image)
+            TMP_ENV="/tmp/fruit-thrower.env"
+            sudo rm -f "$TMP_ENV"
+            printf '%s\n' "FRUIT_TOOL_BUILDER_CMD=${{ secrets.FRUIT_TOOL_BUILDER_CMD }}" | sudo tee -a "$TMP_ENV" >/dev/null
+            printf '%s\n' "FRUIT_TOOL_TRACE_LOG=${{ secrets.FRUIT_TOOL_TRACE_LOG }}" | sudo tee -a "$TMP_ENV" >/dev/null
+            printf '%s\n' "AGENT_GITHUB_TOKEN=${{ secrets.AGENT_GITHUB_TOKEN }}" | sudo tee -a "$TMP_ENV" >/dev/null
+            printf '%s\n' "AGENT_GITHUB_REPO=${{ secrets.AGENT_GITHUB_REPO }}" | sudo tee -a "$TMP_ENV" >/dev/null
+            printf '%s\n' "AGENT_GITHUB_REPO_FIN_KIT=${{ secrets.AGENT_GITHUB_REPO_FIN_KIT }}" | sudo tee -a "$TMP_ENV" >/dev/null
+            printf '%s\n' "AGENT_PR_BASE=${{ secrets.AGENT_PR_BASE }}" | sudo tee -a "$TMP_ENV" >/dev/null
+            printf '%s\n' "AGENT_PR_BASE_FIN_KIT=${{ secrets.AGENT_PR_BASE_FIN_KIT }}" | sudo tee -a "$TMP_ENV" >/dev/null
+            printf '%s\n' "AGENT_AUTO_PR=${{ secrets.AGENT_AUTO_PR }}" | sudo tee -a "$TMP_ENV" >/dev/null
+            sudo chmod 600 "$TMP_ENV"
 
             sudo docker run -d \
               --name "$CONTAINER_NAME" \
@@ -67,8 +75,11 @@ jobs:
               -p 127.0.0.1:8090:8090 \
               -v /opt/fruit-thrower/.code_index-fin-kit:/app/.code_index-fin-kit \
               -v /opt/fruit-thrower/.tool_builder:/app/.tool_builder \
-              $ENV_FILE_ARG \
+              --env-file "$TMP_ENV" \
               "$IMAGE"
+
+            # cleanup runtime env file from host disk
+            sudo shred -u "$TMP_ENV" || sudo rm -f "$TMP_ENV"
 
             sleep 3
             sudo docker ps --filter "name=${CONTAINER_NAME}" --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
