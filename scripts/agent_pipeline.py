@@ -167,7 +167,8 @@ def main() -> None:
     used_auth_remote = False
     if args.push:
         used_auth_remote = configure_authenticated_remote(repo_root=repo_root, repo_slug=repo_slug, token_env=token_env)
-        run(["git", "push", "-u", "origin", "agent"], cwd=repo_root)
+        # Push current HEAD explicitly to remote agent branch so first-time branch creation is reliable.
+        run(["git", "push", "-u", "origin", "HEAD:agent"], cwd=repo_root)
         if used_auth_remote:
             run(["git", "remote", "set-url", "origin", f"https://github.com/{repo_slug}.git"], cwd=repo_root)
 
