@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && npm install -g @openai/codex \
     && rm -rf /var/lib/apt/lists/*
 
-ENV FRUIT_CODEX_BIN=codex
+ENV FRUIT_CODEX_BIN=/usr/bin/codex
 
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
