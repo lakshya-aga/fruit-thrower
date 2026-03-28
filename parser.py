@@ -29,12 +29,15 @@ class ParsedUnit:
     decorators: list[str] = field(default_factory=list)
 
     def to_embed_text(self) -> str:
-        """Produce the text that gets embedded for semantic search."""
+        """Produce the text that gets embedded for semantic search.
+
+        Source code is intentionally excluded so embeddings capture
+        *intent* (name, signature, docstring) rather than implementation.
+        """
         parts = [f"[{self.kind.upper()}] {self.module}.{self.name}"]
         parts.append(f"Signature: {self.signature}")
         if self.docstring:
             parts.append(f"Docstring:\n{self.docstring.strip()}")
-        parts.append(f"Source:\n{self.source}")
         return "\n\n".join(parts)
 
     def to_dict(self) -> dict:

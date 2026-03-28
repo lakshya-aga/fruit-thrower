@@ -173,3 +173,80 @@ After Setup run:
 ```
 python test_client.py
 ```
+
+---
+
+## Docker Deployment
+
+The server ships as a Docker image published to GitHub Container Registry (GHCR) via GitHub Actions on every push to `main`.
+
+### Pull and run the pre-built image
+
+```bash
+docker pull ghcr.io/lakshya-aga/fruit-thrower:latest
+
+docker run -d \
+  --name fruit-thrower \
+  -p 8090:8090 \
+  -v $(pwd)/.code_index-fin-kit:/app/.code_index-fin-kit \
+  -v $(pwd)/.tool_builder:/app/.tool_builder \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  ghcr.io/lakshya-aga/fruit-thrower:latest
+```
+
+The MCP endpoint is available at `http://localhost:8090/mcp`.
+
+### Build locally
+
+```bash
+git clone --recurse-submodules https://github.com/lakshya-aga/fruit-thrower
+cd fruit-thrower
+docker build -t fruit-thrower .
+docker run -d -p 8090:8090 fruit-thrower
+```
+
+### Environment variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ANTHROPIC_API_KEY` | Anthropic API key for semantic embeddings + Claude agent | — |
+| `OPENAI_API_KEY` | OpenAI API key (if using OpenAI agent backend) | — |
+| `FRUIT_CODE_AGENT` | Coding agent backend: `codex`, `claude`, `openai`, `mock` | `codex` |
+| `FRUIT_CLAUDE_MODEL` | Claude model override for code generation | `claude-sonnet-4-6` |
+| `FRUIT_OPENAI_MODEL` | OpenAI model override | `gpt-4-turbo` |
+| `FRUIT_TOOL_BUILDER_CMD` | Shell command to run the agentic builder on new requests | — |
+
+### GitHub Actions (CI/CD)
+
+Pushing to `main` (or `deploy`) triggers `.github/workflows/build-container.yml`, which:
+1. Checks out the repo with submodules
+2. Builds the Docker image
+3. Pushes `ghcr.io/<owner>/fruit-thrower:latest` and `ghcr.io/<owner>/fruit-thrower:sha-<commit>` to GHCR
+
+A separate `deploy-ec2.yml` workflow handles EC2 deployment via SSH after a successful build.
+
+### Transport modes
+
+The container defaults to **Streamable HTTP** (`/mcp`). To use SSE instead:
+
+```bash
+docker run -d -p 8090:8090 fruit-thrower \
+  python mcp_server.py --transport sse --host 0.0.0.0 --port 8090 \
+  --repo /app/fin-kit --index-dir /app/.code_index-fin-kit
+```
+
+SSE endpoint: `http://localhost:8090/sse`
+
+### Connect Claude Desktop to the container
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "fruit-thrower": {
+      "url": "http://localhost:8090/mcp"
+    }
+  }
+}
+```

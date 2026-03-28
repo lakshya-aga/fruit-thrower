@@ -24,7 +24,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from parser import parse_repository
-from vector_store import SimpleTFIDFStore
+from vector_store import CodeVectorStore, SimpleTFIDFStore
+
+
+def _load_store(index_dir: str):
+    try:
+        return CodeVectorStore(persist_dir=index_dir)
+    except Exception:
+        return SimpleTFIDFStore(persist_dir=index_dir)
 
 
 def cmd_index(args):
@@ -35,13 +42,13 @@ def cmd_index(args):
     )
     print(f"\nParsed {len(units)} total units")
 
-    store = SimpleTFIDFStore(persist_dir=args.index_dir)
+    store = _load_store(args.index_dir)
     store.upsert(units)
     print(f"\nIndex stats: {json.dumps(store.stats(), indent=2)}")
 
 
 def cmd_search(args):
-    store = SimpleTFIDFStore(persist_dir=args.index_dir)
+    store = _load_store(args.index_dir)
     if store.count() == 0:
         print("Index is empty. Run: python main.py index --repo /path/to/repo")
         return
@@ -100,13 +107,13 @@ def cmd_generate(args):
     )
     print(f"\nGenerated {len(results)} docstrings.")
     print("Re-indexing with updated docstrings...")
-    store = SimpleTFIDFStore(persist_dir=args.index_dir)
+    store = _load_store(args.index_dir)
     updated_units = parse_repository(args.repo)
     store.upsert(updated_units)
 
 
 def cmd_stats(args):
-    store = SimpleTFIDFStore(persist_dir=args.index_dir)
+    store = _load_store(args.index_dir)
     if store.count() == 0:
         print("Index is empty.")
         return

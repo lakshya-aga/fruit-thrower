@@ -60,6 +60,12 @@ class CodeVectorStore:
         :param batch_size: (int) Number of units to embed per API call.
         :return: (int) Number of units upserted.
         """
+        # Deduplicate by ID — last occurrence wins (consistent with upsert semantics)
+        seen: dict[str, ParsedUnit] = {}
+        for u in units:
+            seen[u.id] = u
+        units = list(seen.values())
+
         total = 0
         for i in range(0, len(units), batch_size):
             batch = units[i : i + batch_size]

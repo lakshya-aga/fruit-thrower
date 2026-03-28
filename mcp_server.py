@@ -24,6 +24,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from code_agent import generate_function as _agent_generate
+
 # Add current dir to path
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -265,6 +267,64 @@ def build_server(index_dir: str, repo_root: str) -> "Server":
                     "required": ["tool_name", "module_path", "summary", "code"]
                 }
             ),
+            types.Tool(
+                name="generate_function",
+                description=(
+                    "Generate a new Python function from a natural language request using an AI "
+                    "coding agent (Claude or OpenAI, configurable via FRUIT_CODE_AGENT env var). "
+                    "The agent is given context from the existing indexed codebase so the generated "
+                    "function matches library conventions. After generation the code is written to "
+                    "the repo and the index is updated, making the new function immediately "
+                    "searchable via search_code."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "request": {
+                            "type": "string",
+                            "description": (
+                                "Natural language description of the function to create. "
+                                "Be as specific as possible: inputs, outputs, algorithm, "
+                                "edge-case handling, and any relevant domain constraints."
+                            ),
+                        },
+                        "module_path": {
+                            "type": "string",
+                            "description": (
+                                "Relative path inside the repo where the function should be "
+                                "written, e.g. 'mlfinlab/filters/filters.py'. "
+                                "If the file already exists the new code is appended. "
+                                "If omitted, the function is written to "
+                                "'.tool_builder/generated/<uuid>.py' and indexed from there."
+                            ),
+                        },
+                        "agent": {
+                            "type": "string",
+                            "enum": ["codex", "claude", "openai"],
+                            "description": (
+                                "Coding agent to use. Overrides FRUIT_CODE_AGENT env var. "
+                                "Defaults to 'codex' (Codex CLI binary)."
+                            ),
+                        },
+                        "model": {
+                            "type": "string",
+                            "description": (
+                                "Model ID override, e.g. 'claude-opus-4-6' or 'gpt-4-turbo'. "
+                                "Defaults to FRUIT_CLAUDE_MODEL / FRUIT_OPENAI_MODEL env vars."
+                            ),
+                        },
+                        "context_n": {
+                            "type": "integer",
+                            "description": (
+                                "Number of related existing functions to retrieve from the "
+                                "index and pass as context to the agent (default: 3)."
+                            ),
+                            "default": 3,
+                        },
+                    },
+                    "required": ["request"],
+                },
+            ),
         ]
 
     @server.call_tool()
@@ -284,13 +344,12 @@ def build_server(index_dir: str, repo_root: str) -> "Server":
                 block = (
                     f"## {r['kind'].upper()}: {r['module']}.{r['name']}\n"
                     f"**Score**: {r['score']:.3f}  |  "
-                    f"**File**: {r['file_path']}:{r['line_start']}\n\n"
+                    f"**File**: `{r['file_path']}:{r['line_start']}`\n\n"
                     f"**Signature**:\n```python\n{r['signature']}\n```\n\n"
                 )
                 if r["docstring"]:
-                    block += f"**Docstring**:\n{r['docstring'][:500]}\n\n"
-                block += f"**Source preview**:\n```python\n{r['source'][:800]}\n```\n"
-                block += f"\n**Unit ID**: `{r['id']}`\n---\n"
+                    block += f"**Docstring**:\n{r['docstring']}\n\n"
+                block += f"**Unit ID**: `{r['id']}`\n---\n"
                 output.append(block)
 
             return [types.TextContent(type="text", text="\n".join(output))]
@@ -368,6 +427,135 @@ def build_server(index_dir: str, repo_root: str) -> "Server":
             )
             if req["spawn_error"]:
                 text += f"\nSpawn error: `{req['spawn_error']}`\n"
+            return [types.TextContent(type="text", text=text)]
+
+        elif name == "generate_function":
+            request_text = arguments.get("request", "").strip()
+            if not request_text:
+                return [types.TextContent(type="text", text="Error: 'request' is required.")]
+
+            module_path_arg: Optional[str] = arguments.get("module_path", "").strip() or None
+            agent_arg: Optional[str] = arguments.get("agent") or None
+            model_arg: Optional[str] = arguments.get("model") or None
+            context_n: int = int(arguments.get("context_n", 3))
+
+            # --- 1. Fetch context from the existing index ---
+            context_str = ""
+            try:
+                ctx_results = store.search(query=request_text, n_results=context_n, kind_filter="function")
+                if ctx_results:
+                    snippets = []
+                    for r in ctx_results:
+                        snippets.append(
+                            f"### {r['module']}.{r['name']}\n"
+                            f"```python\n{r['source'][:600]}\n```"
+                        )
+                    context_str = "\n\n".join(snippets)
+            except Exception:
+                pass  # context is best-effort; proceed without it
+
+            # --- 2. Call the coding agent ---
+            try:
+                result = _agent_generate(
+                    request=request_text,
+                    context=context_str,
+                    agent=agent_arg,
+                    model_override=model_arg,
+                    repo_root=repo_root,
+                    module_path=module_path_arg,
+                )
+            except (ValueError, ImportError, FileNotFoundError, RuntimeError) as exc:
+                return [types.TextContent(type="text", text=f"Agent error: {exc}")]
+
+            code = result["code"]
+            agent_used = result["agent_used"]
+            model_used = result["model_used"]
+            auth_method = result.get("auth_method", "unknown")
+            codex_wrote_files = result.get("wrote_files", False)
+            codex_changed_files = result.get("changed_files", [])
+
+            # --- 3. Write to repo ---
+            # Codex writes files itself when not sandboxed.
+            # If sandboxed (wrote_files=False), fall back to writing extracted code ourselves.
+            repo_root_path = Path(repo_root).resolve()
+            write_mode = None
+            target = None
+
+            needs_write = agent_used != "codex" or not codex_wrote_files
+            if needs_write:
+                if module_path_arg:
+                    target = repo_root_path / module_path_arg
+                else:
+                    generated_dir = Path(".tool_builder") / "generated"
+                    generated_dir.mkdir(parents=True, exist_ok=True)
+                    target = generated_dir / f"{uuid.uuid4().hex[:8]}.py"
+
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if target.exists():
+                    existing = target.read_text(encoding="utf-8")
+                    target.write_text(existing.rstrip() + "\n\n\n" + code + "\n", encoding="utf-8")
+                    write_mode = "appended"
+                else:
+                    target.write_text(code + "\n", encoding="utf-8")
+                    write_mode = "created"
+
+            # --- 4. Re-index ---
+            index_errors = []
+            indexed_count = 0
+            try:
+                if agent_used == "codex" and codex_wrote_files:
+                    # Re-index only the files Codex actually changed
+                    from parser import parse_file
+                    new_units = []
+                    for rel_path in codex_changed_files:
+                        abs_path = str(Path(repo_root).resolve() / rel_path)
+                        try:
+                            new_units += parse_file(abs_path, repo_root=repo_root)
+                        except Exception:
+                            pass
+                    if new_units:
+                        store.upsert(new_units)
+                    indexed_count = len(new_units)
+                elif target is not None:
+                    from parser import parse_file
+                    new_units = parse_file(str(target), repo_root=str(repo_root_path))
+                    store.upsert(new_units)
+                    indexed_count = len(new_units)
+            except Exception as exc:
+                index_errors.append(str(exc))
+
+            # --- 5. Build response ---
+            text = (
+                f"# Generated function\n\n"
+                f"- **Agent**: `{agent_used}` / `{model_used}`\n"
+                f"- **Auth**: `{auth_method}`\n"
+            )
+            if agent_used == "codex" and codex_wrote_files:
+                text += f"- **Codex wrote files directly**: {', '.join(f'`{f}`' for f in codex_changed_files)}\n"
+                text += f"- **Indexed**: {indexed_count} unit(s) added/updated\n"
+            else:
+                text += f"- **File**: `{target}` ({write_mode})\n"
+                text += f"- **Indexed**: {indexed_count} unit(s) added/updated\n"
+            if index_errors:
+                text += f"- **Index warning**: {'; '.join(index_errors)}\n"
+
+            # When Codex wrote files directly, `code` is its prose output.
+            # Read the actual written file so the block contains real Python.
+            display_code = code
+            if agent_used == "codex" and codex_wrote_files:
+                read_path = None
+                if module_path_arg:
+                    read_path = repo_root_path / module_path_arg
+                elif codex_changed_files:
+                    for rel in codex_changed_files:
+                        candidate = repo_root_path / rel
+                        if candidate.exists() and candidate.suffix == ".py":
+                            read_path = candidate
+                            break
+                if read_path and read_path.exists():
+                    display_code = read_path.read_text(encoding="utf-8")
+
+            text += f"\n```python\n{display_code}\n```\n"
             return [types.TextContent(type="text", text=text)]
 
         return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
