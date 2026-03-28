@@ -7,7 +7,13 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
+    curl \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && npm install -g @openai/codex \
     && rm -rf /var/lib/apt/lists/*
+
+ENV FRUIT_CODEX_BIN=codex
 
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt

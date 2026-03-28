@@ -180,17 +180,36 @@ python test_client.py
 
 The server ships as a Docker image published to GitHub Container Registry (GHCR) via GitHub Actions on every push to `main`.
 
-### Pull and run the pre-built image
+The image includes the **Codex CLI** (`@openai/codex`) so the `codex` agent backend works out of the box. Three auth options for Codex:
+
+| Option | How |
+|--------|-----|
+| **1 — API key** | Pass `OPENAI_API_KEY` as an env var |
+| **2 — Mount host auth** | Log in once on your Mac, mount `~/.codex` into the container (recommended) |
+| **3 — Bake `auth.json`** | Mount a specific `/path/to/auth.json:/root/.codex/auth.json` |
+
+### Option 2 — mount host Codex auth (recommended)
 
 ```bash
-docker pull ghcr.io/lakshya-aga/fruit-thrower:latest
+# One-time login on your Mac (opens browser)
+codex auth login
 
+# Then run via docker compose
+docker compose up -d
+```
+
+`docker-compose.yml` mounts `~/.codex` read-only and sets `FRUIT_CODE_AGENT=codex` automatically.
+
+### Option 1 — API key
+
+```bash
 docker run -d \
   --name fruit-thrower \
   -p 8090:8090 \
   -v $(pwd)/.code_index-fin-kit:/app/.code_index-fin-kit \
   -v $(pwd)/.tool_builder:/app/.tool_builder \
-  -e ANTHROPIC_API_KEY=sk-ant-... \
+  -e FRUIT_CODE_AGENT=codex \
+  -e OPENAI_API_KEY=sk-... \
   ghcr.io/lakshya-aga/fruit-thrower:latest
 ```
 

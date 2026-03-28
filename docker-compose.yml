@@ -1,0 +1,16 @@
+services:
+  fruit-thrower:
+    image: ghcr.io/lakshya-aga/fruit-thrower:latest
+    ports:
+      - "8090:8090"
+    volumes:
+      # Codex auth (Option 2) — pre-login on host with: codex auth login
+      - ~/.codex:/root/.codex:ro
+      # Persistent index and tool-builder state
+      - ./.code_index-fin-kit:/app/.code_index-fin-kit
+      - ./.tool_builder:/app/.tool_builder
+    environment:
+      FRUIT_CODE_AGENT: codex
+      # OPENAI_API_KEY: sk-...       # Option 1: uncomment if using API key instead
+      # ANTHROPIC_API_KEY: sk-ant-... # needed for semantic embeddings
+    restart: unless-stopped
