@@ -13,14 +13,14 @@ MCP tools exposed:
     • list_modules        — List all indexed modules
     • get_module_summary  — Get all units in a given module
     • index_repository    — Trigger re-indexing of the repo
+    • get_index_stats     — Stats on the current index
+    • generate_function   — Generate a new function via AI agent and index it
 """
 import argparse
 import json
 import os
-import subprocess
 import sys
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -39,102 +39,6 @@ except ImportError:
 
 from parser import parse_repository, ParsedUnit
 from vector_store import CodeVectorStore, SimpleTFIDFStore
-
-
-_REQUESTS_DIR = Path(os.environ.get("FRUIT_TOOL_REQUESTS_DIR", ".tool_builder/requests"))
-_TRACE_LOG = Path(os.environ.get("FRUIT_TOOL_TRACE_LOG", ".tool_builder/trace.jsonl"))
-_DEFAULT_BUILDER_PROMPT = (
-    "Implement the requested fin-kit/library function and integrate discoverability in fruit-thrower. "
-    "Use request spec JSON, add/update code, tests/docs, then commit to agent branch."
-)
-
-
-def _trace(event: str, request_id: str, **fields) -> None:
-    _TRACE_LOG.parent.mkdir(parents=True, exist_ok=True)
-    rec = {
-        "ts": datetime.now(timezone.utc).isoformat(),
-        "event": event,
-        "request_id": request_id,
-        **fields,
-    }
-    with _TRACE_LOG.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(rec) + "\n")
-
-
-def _create_tool_request(arguments: dict) -> dict:
-    tool_name = arguments.get("tool_name", "").strip()
-    module_path = arguments.get("module_path", "").strip()
-    summary = arguments.get("summary", "").strip()
-    code = arguments.get("code", "")
-    if not tool_name or not module_path or not summary or not code:
-        raise ValueError("tool_name, module_path, summary, and code are required")
-
-    request_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
-    _REQUESTS_DIR.mkdir(parents=True, exist_ok=True)
-    request_file = _REQUESTS_DIR / f"{request_id}.json"
-    payload = {
-        "request_id": request_id,
-        "created_at_utc": datetime.now(timezone.utc).isoformat(),
-        "tool_name": tool_name,
-        "module_path": module_path,
-        "summary": summary,
-        "code": code,
-        "tags": arguments.get("tags", []),
-        "example": arguments.get("example", ""),
-        "notes": arguments.get("notes", ""),
-    }
-    request_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    _trace(
-        "request_saved",
-        request_id,
-        tool_name=tool_name,
-        module_path=module_path,
-        request_file=str(request_file),
-    )
-
-    builder_cmd = os.environ.get("FRUIT_TOOL_BUILDER_CMD", "").strip()
-    spawned = False
-    spawn_error = None
-    builder_report = None
-    if builder_cmd:
-        cmd = builder_cmd.format(request_file=str(request_file), request_id=request_id)
-        try:
-            proc = subprocess.run(
-                cmd,
-                shell=True,
-                cwd=str(Path(__file__).resolve().parent),
-                capture_output=True,
-                text=True,
-            )
-            spawned = proc.returncode == 0
-            _trace(
-                "builder_spawned" if spawned else "builder_run_failed",
-                request_id,
-                command=cmd,
-                returncode=proc.returncode,
-                stdout=(proc.stdout or "")[-2000:],
-                stderr=(proc.stderr or "")[-2000:],
-            )
-            rep = Path(".tool_builder") / "reports" / f"{request_id}.json"
-            if rep.exists():
-                try:
-                    builder_report = json.loads(rep.read_text(encoding="utf-8"))
-                except Exception:
-                    builder_report = None
-        except Exception as exc:  # pragma: no cover
-            spawn_error = str(exc)
-            _trace("builder_spawn_failed", request_id, command=cmd, error=spawn_error)
-    else:
-        _trace("builder_not_configured", request_id)
-
-    return {
-        "request_id": request_id,
-        "request_file": str(request_file),
-        "builder_spawned": spawned,
-        "builder_command": builder_cmd or None,
-        "spawn_error": spawn_error,
-        "builder_report": builder_report,
-    }
 
 
 def load_store(index_dir: str):
@@ -243,29 +147,6 @@ def build_server(index_dir: str, repo_root: str) -> "Server":
                 name="get_index_stats",
                 description="Return statistics about the current code index.",
                 inputSchema={"type": "object", "properties": {}}
-            ),
-            types.Tool(
-                name="request_tool_addition",
-                description=(
-                    "Submit a proposed new internal library function/tool implementation. "
-                    "IMPORTANT: the request must be well-formed and paste-ready for the target repo "
-                    "(production-quality code block, module path, and clear summary). "
-                    "The MCP stores a formal request spec and can spawn an external builder agent "
-                    "(configured by FRUIT_TOOL_BUILDER_CMD) to implement on agent branch + docs."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "tool_name": {"type": "string"},
-                        "module_path": {"type": "string", "description": "Target path, e.g. fin_kit/signals/new_signal.py"},
-                        "summary": {"type": "string"},
-                        "code": {"type": "string", "description": "Proposed Python code, paste-ready for the repo (imports, function body, and sane defaults)."},
-                        "tags": {"type": "array", "items": {"type": "string"}},
-                        "example": {"type": "string"},
-                        "notes": {"type": "string"}
-                    },
-                    "required": ["tool_name", "module_path", "summary", "code"]
-                }
             ),
             types.Tool(
                 name="generate_function",
@@ -398,36 +279,6 @@ def build_server(index_dir: str, repo_root: str) -> "Server":
         elif name == "get_index_stats":
             stats = store.stats()
             return [types.TextContent(type="text", text=f"```json\n{json.dumps(stats, indent=2)}\n```")]
-
-        elif name == "request_tool_addition":
-            try:
-                req = _create_tool_request(arguments)
-            except ValueError as exc:
-                rid = datetime.now(timezone.utc).strftime("invalid-%Y%m%dT%H%M%SZ")
-                _trace("request_invalid", rid, error=str(exc), provided_keys=sorted(list(arguments.keys())))
-                return [types.TextContent(type="text", text=f"Invalid request: {exc}")]
-
-            _trace("request_accepted", req["request_id"], builder_spawned=req["builder_spawned"])
-            status = "✅ builder agent spawn requested" if req["builder_spawned"] else "ℹ️ request queued"
-            text = (
-                f"# Tool addition request accepted\n\n"
-                f"- Request ID: `{req['request_id']}`\n"
-                f"- Request file: `{req['request_file']}`\n"
-                f"- Status: {status}\n"
-                f"- Builder command: `{req['builder_command'] or '(unset)'}`\n"
-            )
-            if req.get("builder_report"):
-                br = req["builder_report"]
-                text += f"- Viability: `{br.get('viable')}` ({br.get('reason')})\n"
-                if br.get("pr_url"):
-                    text += f"- Pull request: {br['pr_url']}\n"
-            text += (
-                f"\nSet `FRUIT_TOOL_BUILDER_CMD` to auto-run a builder agent using request spec.\n"
-                f"Prompt hint: {_DEFAULT_BUILDER_PROMPT}\n"
-            )
-            if req["spawn_error"]:
-                text += f"\nSpawn error: `{req['spawn_error']}`\n"
-            return [types.TextContent(type="text", text=text)]
 
         elif name == "generate_function":
             request_text = arguments.get("request", "").strip()
