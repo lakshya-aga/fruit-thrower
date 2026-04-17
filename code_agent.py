@@ -23,11 +23,14 @@ mock
 
 Global selector: FRUIT_CODE_AGENT env var (default: codex).
 """
+import logging
 import os
 import re
 import shutil
 import subprocess
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = """\
 You are an expert Python developer specialising in quantitative finance libraries.
@@ -168,6 +171,10 @@ def _generate_codex(request: str, context: str, repo_root: str,
             "Set FRUIT_CODEX_BIN to the correct path."
         )
 
+    # Validate repo_root is a real directory
+    if not os.path.isdir(repo_root):
+        raise FileNotFoundError(f"repo_root '{repo_root}' is not a valid directory.")
+
     # Build prompt — include module_path as a placement hint
     placement = (
         f"\nWrite the function into `{module_path}` "
@@ -194,6 +201,7 @@ def _generate_codex(request: str, context: str, repo_root: str,
     output = (proc.stdout or "").strip()
     if proc.returncode != 0:
         stderr = (proc.stderr or "")[-1000:]
+        logger.error("codex exec failed (code %d): %s", proc.returncode, stderr)
         raise RuntimeError(
             f"codex exec exited with code {proc.returncode}.\nstderr: {stderr}"
         )

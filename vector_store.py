@@ -5,8 +5,11 @@ Embeddings are handled by ChromaDB's default embedding function (sentence-transf
 with persistence on disk. Supports upsert (idempotent re-indexing) and semantic search.
 """
 import json
+import logging
 import os
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 try:
     import chromadb
@@ -52,6 +55,13 @@ class CodeVectorStore:
             metadata={"hnsw:space": "cosine"},
         )
 
+    def _sanitize_metadata_str(self, value: str) -> str:
+        """Sanitize string values for safe storage in ChromaDB metadata."""
+        if not isinstance(value, str):
+            return str(value)
+        # Strip null bytes and control chars that could cause issues
+        return value.replace("\x00", "")
+
     def upsert(self, units: list[ParsedUnit], batch_size: int = 50) -> int:
         """
         Embed and upsert code units into the store (idempotent).
@@ -70,24 +80,28 @@ class CodeVectorStore:
         for i in range(0, len(units), batch_size):
             batch = units[i : i + batch_size]
             texts = [u.to_embed_text() for u in batch]
-            self._collection.upsert(
-                ids=[u.id for u in batch],
-                documents=texts,
-                metadatas=[{
-                    "kind": u.kind,
-                    "name": u.name,
-                    "module": u.module,
-                    "file_path": u.file_path,
-                    "line_start": u.line_start,
-                    "line_end": u.line_end,
-                    "signature": u.signature,
-                    "docstring": u.docstring or "",
-                    "parent": u.parent or "",
-                    "source": u.source[:2000],  # Chroma metadata size limit
-                } for u in batch],
-            )
+            try:
+                self._collection.upsert(
+                    ids=[u.id for u in batch],
+                    documents=texts,
+                    metadatas=[{
+                        "kind": self._sanitize_metadata_str(u.kind),
+                        "name": self._sanitize_metadata_str(u.name),
+                        "module": self._sanitize_metadata_str(u.module),
+                        "file_path": self._sanitize_metadata_str(u.file_path),
+                        "line_start": u.line_start,
+                        "line_end": u.line_end,
+                        "signature": self._sanitize_metadata_str(u.signature),
+                        "docstring": self._sanitize_metadata_str(u.docstring or ""),
+                        "parent": self._sanitize_metadata_str(u.parent or ""),
+                        "source": self._sanitize_metadata_str(u.source[:2000]),
+                    } for u in batch],
+                )
+            except Exception:
+                logger.error("Failed to upsert batch at offset %d", i, exc_info=True)
+                continue
             total += len(batch)
-            print(f"  Indexed {total}/{len(units)} units")
+            logger.info("Indexed %d/%d units", total, len(units))
         return total
 
     def search(
@@ -183,7 +197,7 @@ class SimpleTFIDFStore:
             self._load()
 
     def _load(self):
-        with open(self._index_path) as f:
+        with open(self._index_path, encoding="utf-8") as f:
             self._records = json.load(f)
         self._fit()
 
@@ -222,10 +236,10 @@ class SimpleTFIDFStore:
                 for i, r in enumerate(self._records):
                     if r["id"] == u.id:
                         self._records[i] = record
-        with open(self._index_path, "w") as f:
+        with open(self._index_path, "w", encoding="utf-8") as f:
             json.dump(self._records, f, indent=2)
         self._fit()
-        print(f"  Indexed {len(self._records)} total units (+{added} new)")
+        logger.info("Indexed %d total units (+%d new)", len(self._records), added)
         return added
 
     def search(
