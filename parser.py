@@ -5,11 +5,14 @@ Extracts functions, classes, and module-level docstrings from .py files,
 producing structured metadata records ready for embedding and storage.
 """
 import ast
+import logging
 import os
 import hashlib
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -80,13 +83,13 @@ def parse_file(file_path: str, repo_root: str) -> list[ParsedUnit]:
     try:
         source = path.read_text(encoding="utf-8")
     except Exception as e:
-        print(f"[WARN] Could not read {file_path}: {e}")
+        logger.warning("Could not read %s: %s", file_path, e)
         return units
 
     try:
         tree = ast.parse(source)
     except SyntaxError as e:
-        print(f"[WARN] Syntax error in {file_path}: {e}")
+        logger.warning("Syntax error in %s: %s", file_path, e)
         return units
 
     source_lines = source.splitlines(keepends=True)
@@ -110,6 +113,14 @@ def parse_file(file_path: str, repo_root: str) -> list[ParsedUnit]:
         ))
 
     # ── Walk top-level and class-level nodes ───────────────────────────────
+    # Pre-compute set of method node ids to avoid O(n²) parent-class check
+    _class_method_ids: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            for item in node.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    _class_method_ids.add(id(item))
+
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef):
             class_doc = ast.get_docstring(node)
@@ -137,15 +148,8 @@ def parse_file(file_path: str, repo_root: str) -> list[ParsedUnit]:
                     )
 
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            # Only top-level functions (parent handled above)
-            if not any(
-                isinstance(n, ast.ClassDef) and any(
-                    isinstance(child, type(node)) and child is node
-                    for child in ast.walk(n)
-                )
-                for n in ast.walk(tree)
-                if isinstance(n, ast.ClassDef)
-            ):
+            # Only top-level functions (skip class methods)
+            if id(node) not in _class_method_ids:
                 _add_function(units, node, source_lines, rel_path, module_name)
 
     return units

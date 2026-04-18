@@ -1,7 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+*.whl
 
-.env
+# Virtual environments
 .venv/
+venv/
+env/
+
+# Environment
+.env
+.env.*
+
+# Code index (generated)
 .code_index/
 .code_index*/
-__pycache__/
-*__pycache__*
+.tool_builder/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

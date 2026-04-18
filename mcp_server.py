@@ -18,11 +18,18 @@ MCP tools exposed:
 """
 import argparse
 import json
+import logging
 import os
 import sys
 import uuid
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
 
 from code_agent import generate_function as _agent_generate
 
@@ -46,7 +53,7 @@ def load_store(index_dir: str):
     try:
         return CodeVectorStore(persist_dir=index_dir)
     except Exception as exc:
-        print(f"WARN: semantic store unavailable ({exc}); falling back to TF-IDF")
+        logger.warning("Semantic store unavailable (%s); falling back to TF-IDF", exc)
         return SimpleTFIDFStore(persist_dir=index_dir)
 
 
@@ -285,7 +292,19 @@ def build_server(index_dir: str, repo_root: str) -> "Server":
             if not request_text:
                 return [types.TextContent(type="text", text="Error: 'request' is required.")]
 
+            # Input length guard — prevent abuse via extremely long prompts
+            _MAX_REQUEST_LEN = 10_000
+            if len(request_text) > _MAX_REQUEST_LEN:
+                return [types.TextContent(
+                    type="text",
+                    text=f"Error: request too long ({len(request_text)} chars, max {_MAX_REQUEST_LEN}).",
+                )]
+
             module_path_arg: Optional[str] = arguments.get("module_path", "").strip() or None
+            # Validate module_path to prevent path traversal
+            if module_path_arg and (".." in module_path_arg or module_path_arg.startswith("/")):
+                return [types.TextContent(type="text", text="Error: module_path must be a relative path without '..'")]
+
             agent_arg: Optional[str] = arguments.get("agent") or None
             model_arg: Optional[str] = arguments.get("model") or None
             context_n: int = int(arguments.get("context_n", 3))
@@ -303,7 +322,7 @@ def build_server(index_dir: str, repo_root: str) -> "Server":
                         )
                     context_str = "\n\n".join(snippets)
             except Exception:
-                pass  # context is best-effort; proceed without it
+                logger.debug("Context retrieval failed; proceeding without context")
 
             # --- 2. Call the coding agent ---
             try:
@@ -335,7 +354,10 @@ def build_server(index_dir: str, repo_root: str) -> "Server":
             needs_write = agent_used != "codex" or not codex_wrote_files
             if needs_write:
                 if module_path_arg:
-                    target = repo_root_path / module_path_arg
+                    target = (repo_root_path / module_path_arg).resolve()
+                    # Ensure target is within repo root
+                    if not str(target).startswith(str(repo_root_path)):
+                        return [types.TextContent(type="text", text="Error: module_path escapes repository root.")]
                 else:
                     generated_dir = Path(".tool_builder") / "generated"
                     generated_dir.mkdir(parents=True, exist_ok=True)
@@ -363,7 +385,7 @@ def build_server(index_dir: str, repo_root: str) -> "Server":
                         try:
                             new_units += parse_file(abs_path, repo_root=repo_root)
                         except Exception:
-                            pass
+                            logger.warning("Failed to parse %s during re-index", rel_path, exc_info=True)
                     if new_units:
                         store.upsert(new_units)
                     indexed_count = len(new_units)

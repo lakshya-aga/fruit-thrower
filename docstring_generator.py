@@ -5,11 +5,14 @@ For units that have no docstring (or a stub), this module calls the
 Anthropic API to produce a well-formatted NumPy/Google-style docstring
 and patches the source file in place.
 """
+import logging
 import re
 import ast
 import os
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # Load .env from repo root if present
 try:
@@ -328,7 +331,11 @@ def patch_file_with_docstring(unit: ParsedUnit, docstring: str, repo_root: str) 
     :return: (bool) True if file was modified.
     """
     file_path = Path(repo_root) / unit.file_path
-    source = file_path.read_text(encoding="utf-8")
+    try:
+        source = file_path.read_text(encoding="utf-8")
+    except OSError:
+        logger.error("Failed to read %s for docstring patching", file_path, exc_info=True)
+        return False
     tree = ast.parse(source)
     lines = source.splitlines(keepends=True)
 
@@ -364,7 +371,11 @@ def patch_file_with_docstring(unit: ParsedUnit, docstring: str, repo_root: str) 
         new_doc_lines += f'{indent}"""\n'
         lines.insert(insert_at, new_doc_lines)
 
-    file_path.write_text("".join(lines), encoding="utf-8")
+    try:
+        file_path.write_text("".join(lines), encoding="utf-8")
+    except OSError:
+        logger.error("Failed to write patched docstring to %s", file_path, exc_info=True)
+        return False
     return True
 
 
