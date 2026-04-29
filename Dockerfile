@@ -20,6 +20,21 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY . /app
 
+# Build the code index at image build time. The .code_index*/ directories
+# are .gitignored so they aren't in the build context — without this step
+# the container starts with an empty Chroma collection and every search_code
+# call silently returns "No results found." Building here also avoids the
+# first-start latency of embedding all 500+ fin-kit units after deploy.
+#
+# Network is required during this step because Chroma's default embedding
+# function downloads sentence-transformers/all-MiniLM-L6-v2 (~80 MB) on
+# first use; the model is then baked into the image cache for subsequent
+# starts.
+RUN python main.py index \
+        --repo /app/fin-kit \
+        --index-dir /app/.code_index-fin-kit \
+    && python main.py stats --index-dir /app/.code_index-fin-kit
+
 EXPOSE 8090
 
 CMD ["python", "mcp_server.py", "--transport", "streamable", "--host", "0.0.0.0", "--port", "8090", "--mount-path", "/mcp", "--repo", "/app/fin-kit", "--index-dir", "/app/.code_index-fin-kit"]

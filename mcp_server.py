@@ -60,6 +60,29 @@ def load_store(index_dir: str):
 def build_server(index_dir: str, repo_root: str) -> "Server":
     """Build and return the configured MCP server."""
     store = load_store(index_dir)
+    # If the index is empty at startup, search_code will silently return
+    # "No results found." for every query and the agent has no signal that
+    # something's wrong. Log a loud warning + try to rebuild on the fly
+    # so the failure is recoverable instead of silently broken.
+    try:
+        unit_count = store.count() if hasattr(store, "count") else len(getattr(store, "_records", []))
+    except Exception as exc:
+        logger.warning("could not introspect index size: %s", exc)
+        unit_count = -1
+    if unit_count == 0:
+        logger.error(
+            "code index at %s is EMPTY — every search_code call will return "
+            "'No results found.' Attempting to rebuild from %s now.",
+            index_dir, repo_root,
+        )
+        try:
+            units = parse_repository(repo_root)
+            n = store.upsert(units) if hasattr(store, "upsert") else 0
+            logger.warning("auto-rebuild indexed %d units from %s", n, repo_root)
+        except Exception:
+            logger.exception("auto-rebuild failed; index remains empty")
+    elif unit_count > 0:
+        logger.info("code index ready: %d units at %s", unit_count, index_dir)
     server = Server("code-rag")
 
     @server.list_tools()
@@ -225,7 +248,27 @@ def build_server(index_dir: str, repo_root: str) -> "Server":
                 module_filter=arguments.get("module"),
             )
             if not results:
-                return [types.TextContent(type="text", text="No results found.")]
+                # Diagnose why we returned empty so the calling agent can
+                # adjust its strategy (or the operator can spot a broken
+                # deployment) instead of assuming "this concept doesn't
+                # exist in the library".
+                try:
+                    total = store.count() if hasattr(store, "count") else len(getattr(store, "_records", []))
+                except Exception:
+                    total = -1
+                if total == 0:
+                    msg = (
+                        "No results — the code index is EMPTY. "
+                        "The deployment is broken; ask the operator to rebuild the index."
+                    )
+                else:
+                    msg = (
+                        f"No results found for query='{arguments['query']}'. "
+                        f"Index has {total} units; try a shorter / more focused query "
+                        "(e.g. one concept like 'CUSUM filter' or 'rolling z-score'), "
+                        "or call list_modules to see what's available."
+                    )
+                return [types.TextContent(type="text", text=msg)]
 
             output = []
             for r in results:
