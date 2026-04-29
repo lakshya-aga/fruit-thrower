@@ -30,10 +30,8 @@ COPY . /app
 # function downloads sentence-transformers/all-MiniLM-L6-v2 (~80 MB) on
 # first use; the model is then baked into the image cache for subsequent
 # starts.
-RUN python main.py index \
-        --repo /app/fin-kit \
-        --index-dir /app/.code_index-fin-kit \
-    && python main.py stats --index-dir /app/.code_index-fin-kit
+RUN python main.py --index-dir /app/.code_index-fin-kit index --repo /app/fin-kit \
+    && python main.py --index-dir /app/.code_index-fin-kit stats
 
 EXPOSE 8090
 

@@ -4,6 +4,7 @@ on:
   push:
     branches: [deploy, main]
   workflow_dispatch:
+  workflow_call:        # so refresh-fin-kit.yml can invoke this
 
 permissions:
   contents: read
@@ -45,3 +46,25 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      # Smoke-test: pull the just-pushed image and assert the baked-in
+      # code index has more than 100 units. Catches the regression where
+      # .gitignored .code_index dirs end up empty in the image — that
+      # broke search_code silently in production once already.
+      - name: Smoke-test image (assert index has >100 units)
+        run: |
+          docker pull ghcr.io/${{ github.repository_owner }}/fruit-thrower:latest
+          STATS=$(docker run --rm \
+            ghcr.io/${{ github.repository_owner }}/fruit-thrower:latest \
+            python main.py --index-dir /app/.code_index-fin-kit stats)
+          echo "$STATS"
+          TOTAL=$(echo "$STATS" | grep -oE '"total_units":[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -1)
+          if [ -z "$TOTAL" ]; then
+            echo "::error::Could not parse total_units from stats output"
+            exit 1
+          fi
+          if [ "$TOTAL" -le 100 ]; then
+            echo "::error::Index has only $TOTAL units (expected > 100). Index build may have silently failed."
+            exit 1
+          fi
+          echo "✓ Image index OK: $TOTAL units"

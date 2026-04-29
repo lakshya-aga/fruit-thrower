@@ -57,8 +57,9 @@ def load_store(index_dir: str):
         return SimpleTFIDFStore(persist_dir=index_dir)
 
 
-def build_server(index_dir: str, repo_root: str) -> "Server":
-    """Build and return the configured MCP server."""
+def build_server(index_dir: str, repo_root: str):
+    """Build and return (server, store). The store is exposed so the HTTP
+    transport can mount a /health endpoint that reports index size."""
     store = load_store(index_dir)
     # If the index is empty at startup, search_code will silently return
     # "No results found." for every query and the agent has no signal that
@@ -476,7 +477,7 @@ def build_server(index_dir: str, repo_root: str) -> "Server":
 
         return [types.TextContent(type="text", text=f"Unknown tool: {name}")]
 
-    return server
+    return server, store
 
 
 def main():
@@ -503,10 +504,36 @@ def main():
         sys.exit(1)
 
     from starlette.applications import Starlette
+    from starlette.responses import JSONResponse
     from starlette.routing import Route, Mount
     import uvicorn
 
-    server = build_server(args.index_dir, args.repo)
+    server, store = build_server(args.index_dir, args.repo)
+
+    # /health — JSON status pill so synapse can show "index ready · N units"
+    # on the recipe page (and ops can curl it). Cheap O(1) call.
+    async def health(_request):
+        try:
+            count = store.count() if hasattr(store, "count") else len(getattr(store, "_records", []))
+        except Exception as exc:
+            return JSONResponse(
+                {
+                    "index_ready": False,
+                    "index_size": -1,
+                    "error": str(exc),
+                },
+                status_code=503,
+            )
+        ready = count > 0
+        return JSONResponse(
+            {
+                "index_ready": ready,
+                "index_size": int(count),
+                "index_dir": args.index_dir,
+                "repo": args.repo,
+            },
+            status_code=200 if ready else 503,
+        )
 
     if args.transport == "sse":
         from mcp.server.sse import SseServerTransport
@@ -520,6 +547,7 @@ def main():
         app = Starlette(routes=[
             Route("/sse", endpoint=handle_sse),
             Mount("/messages/", app=sse.handle_post_message),
+            Route("/health", endpoint=health),
         ])
         print(f"Code RAG MCP (SSE) running at http://{args.host}:{args.port}/sse")
 
@@ -539,7 +567,10 @@ def main():
                     tg.cancel_scope.cancel()
 
         app = Starlette(
-            routes=[Mount(args.mount_path, app=streamable.handle_request)],
+            routes=[
+                Mount(args.mount_path, app=streamable.handle_request),
+                Route("/health", endpoint=health),
+            ],
             lifespan=lifespan,
         )
         print(f"Code RAG MCP (streamable HTTP) running at http://{args.host}:{args.port}{args.mount_path}")

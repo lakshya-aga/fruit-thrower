@@ -1,0 +1,72 @@
+name: Refresh fin-kit submodule + rebuild image
+
+# Periodically pull the latest fin-kit commit, bump the submodule pointer,
+# and trigger a fresh container build. Without this, the indexed code
+# falls behind upstream fin-kit changes.
+#
+# Two triggers:
+#   - Hourly cron (light enough; the build itself only runs if the
+#     submodule moved, so most invocations are no-ops).
+#   - Manual workflow_dispatch for on-demand refreshes.
+
+on:
+  schedule:
+    # Every 6 hours at :15 (offset so we don't all run on the hour).
+    - cron: "15 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write       # so we can commit a submodule pointer bump
+  packages: write       # so the rebuild can push to GHCR
+
+concurrency:
+  group: fin-kit-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.bump.outputs.changed }}
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          # Need a real PAT or GITHUB_TOKEN with push perms; the default
+          # one works because we set `contents: write` above.
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git author
+        run: |
+          git config user.name  "fin-kit-refresh-bot"
+          git config user.email "fin-kit-refresh-bot@users.noreply.github.com"
+
+      - name: Pull latest fin-kit
+        id: bump
+        run: |
+          cd fin-kit
+          BEFORE=$(git rev-parse HEAD)
+          git fetch origin
+          # Move to whatever the default branch's HEAD is.
+          DEFAULT_BRANCH=$(git symbolic-ref --short refs/remotes/origin/HEAD | sed 's@^origin/@@')
+          git checkout "$DEFAULT_BRANCH"
+          git pull --ff-only origin "$DEFAULT_BRANCH"
+          AFTER=$(git rev-parse HEAD)
+          cd ..
+          if [ "$BEFORE" = "$AFTER" ]; then
+            echo "fin-kit unchanged (HEAD = $BEFORE)"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "fin-kit moved $BEFORE → $AFTER"
+          git add fin-kit
+          git commit -m "chore(fin-kit): bump submodule to $AFTER"
+          git push origin HEAD:${{ github.ref_name }}
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+  trigger-build:
+    needs: refresh
+    if: needs.refresh.outputs.changed == 'true'
+    uses: ./.github/workflows/build-container.yml
+    secrets: inherit
