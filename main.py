@@ -15,6 +15,7 @@ Examples:
     python main.py generate --repo /path/to/mylib --dry-run
     python main.py stats
 """
+
 import argparse
 import json
 import os
@@ -64,7 +65,7 @@ def cmd_search(args):
         print("No results found.")
         return
 
-    print(f"\nTop {len(results)} results for: '{args.query}'\n{'='*60}")
+    print(f"\nTop {len(results)} results for: '{args.query}'\n{'=' * 60}")
     for i, r in enumerate(results, 1):
         print(f"\n[{i}] {r['kind'].upper()}: {r['module']}.{r['name']}")
         print(f"    Score : {r['score']:.4f}")
@@ -79,7 +80,11 @@ def cmd_search(args):
 def cmd_generate(args):
     print(f"Parsing repository: {args.repo}")
     units = parse_repository(args.repo)
-    missing = [u for u in units if not u.docstring and u.kind in ("function", "method", "class")]
+    missing = [
+        u
+        for u in units
+        if not u.docstring and u.kind in ("function", "method", "class")
+    ]
     print(f"\nFound {len(missing)} units without docstrings")
 
     if args.dry_run:
@@ -131,7 +136,7 @@ def main():
     parser.add_argument(
         "--index-dir",
         default="./.code_index",
-        help="Directory for the vector index (default: ./.code_index)"
+        help="Directory for the vector index (default: ./.code_index)",
     )
 
     sub = parser.add_subparsers(dest="command", required=True)
@@ -152,13 +157,20 @@ def main():
     p_gen = sub.add_parser("generate", help="Generate missing docstrings")
     p_gen.add_argument("--repo", required=True, help="Path to repository root")
     p_gen.add_argument("--api-key", help="Anthropic API key")
-    p_gen.add_argument("--dry-run", action="store_true", help="List units without writing")
+    p_gen.add_argument(
+        "--dry-run", action="store_true", help="List units without writing"
+    )
 
     # stats
     sub.add_parser("stats", help="Show index statistics")
 
     args = parser.parse_args()
-    {"index": cmd_index, "search": cmd_search, "generate": cmd_generate, "stats": cmd_stats}[args.command](args)
+    {
+        "index": cmd_index,
+        "search": cmd_search,
+        "generate": cmd_generate,
+        "stats": cmd_stats,
+    }[args.command](args)
 
 
 if __name__ == "__main__":

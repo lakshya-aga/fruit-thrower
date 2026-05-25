@@ -16,10 +16,10 @@ MCP tools exposed:
     • get_index_stats     — Stats on the current index
     • generate_function   — Generate a new function via AI agent and index it
 """
+
 import argparse
 import json
 import logging
-import os
 import sys
 import uuid
 from pathlib import Path
@@ -37,14 +37,14 @@ from code_agent import generate_function as _agent_generate
 sys.path.insert(0, str(Path(__file__).parent))
 
 try:
-    from mcp.server import Server
-    from mcp.server.stdio import stdio_server
     from mcp import types
+    from mcp.server import Server
+
     _MCP_AVAILABLE = True
 except ImportError:
     _MCP_AVAILABLE = False
 
-from parser import parse_repository, ParsedUnit
+from parser import parse_repository
 from vector_store import CodeVectorStore, SimpleTFIDFStore
 
 
@@ -66,7 +66,11 @@ def build_server(index_dir: str, repo_root: str):
     # something's wrong. Log a loud warning + try to rebuild on the fly
     # so the failure is recoverable instead of silently broken.
     try:
-        unit_count = store.count() if hasattr(store, "count") else len(getattr(store, "_records", []))
+        unit_count = (
+            store.count()
+            if hasattr(store, "count")
+            else len(getattr(store, "_records", []))
+        )
     except Exception as exc:
         logger.warning("could not introspect index size: %s", exc)
         unit_count = -1
@@ -74,7 +78,8 @@ def build_server(index_dir: str, repo_root: str):
         logger.error(
             "code index at %s is EMPTY — every search_code call will return "
             "'No results found.' Attempting to rebuild from %s now.",
-            index_dir, repo_root,
+            index_dir,
+            repo_root,
         )
         try:
             units = parse_repository(repo_root)
@@ -101,25 +106,25 @@ def build_server(index_dir: str, repo_root: str):
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": "Natural language or code query, e.g. 'CUSUM filter for time series events'"
+                            "description": "Natural language or code query, e.g. 'CUSUM filter for time series events'",
                         },
                         "n_results": {
                             "type": "integer",
                             "description": "Number of results to return (default: 5)",
-                            "default": 5
+                            "default": 5,
                         },
                         "kind": {
                             "type": "string",
                             "enum": ["function", "class", "method", "module"],
-                            "description": "Filter by unit kind (optional)"
+                            "description": "Filter by unit kind (optional)",
                         },
                         "module": {
                             "type": "string",
-                            "description": "Filter by module name prefix, e.g. 'filters' (optional)"
-                        }
+                            "description": "Filter by module name prefix, e.g. 'filters' (optional)",
+                        },
                     },
-                    "required": ["query"]
-                }
+                    "required": ["query"],
+                },
             ),
             types.Tool(
                 name="get_unit_source",
@@ -132,16 +137,16 @@ def build_server(index_dir: str, repo_root: str):
                     "properties": {
                         "unit_id": {
                             "type": "string",
-                            "description": "Unit ID from search_code results"
+                            "description": "Unit ID from search_code results",
                         }
                     },
-                    "required": ["unit_id"]
-                }
+                    "required": ["unit_id"],
+                },
             ),
             types.Tool(
                 name="list_modules",
                 description="List all indexed Python modules in the repository.",
-                inputSchema={"type": "object", "properties": {}}
+                inputSchema={"type": "object", "properties": {}},
             ),
             types.Tool(
                 name="get_module_summary",
@@ -151,11 +156,11 @@ def build_server(index_dir: str, repo_root: str):
                     "properties": {
                         "module": {
                             "type": "string",
-                            "description": "Dotted module name, e.g. 'filters.cusum'"
+                            "description": "Dotted module name, e.g. 'filters.cusum'",
                         }
                     },
-                    "required": ["module"]
-                }
+                    "required": ["module"],
+                },
             ),
             types.Tool(
                 name="index_repository",
@@ -169,15 +174,15 @@ def build_server(index_dir: str, repo_root: str):
                         "exclude_dirs": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "Directories to exclude (optional)"
+                            "description": "Directories to exclude (optional)",
                         }
-                    }
-                }
+                    },
+                },
             ),
             types.Tool(
                 name="get_index_stats",
                 description="Return statistics about the current code index.",
-                inputSchema={"type": "object", "properties": {}}
+                inputSchema={"type": "object", "properties": {}},
             ),
             types.Tool(
                 name="generate_function",
@@ -254,7 +259,11 @@ def build_server(index_dir: str, repo_root: str):
                 # deployment) instead of assuming "this concept doesn't
                 # exist in the library".
                 try:
-                    total = store.count() if hasattr(store, "count") else len(getattr(store, "_records", []))
+                    total = (
+                        store.count()
+                        if hasattr(store, "count")
+                        else len(getattr(store, "_records", []))
+                    )
                 except Exception:
                     total = -1
                 if total == 0:
@@ -291,7 +300,9 @@ def build_server(index_dir: str, repo_root: str):
             all_records = store._records
             match = next((r for r in all_records if r["id"] == unit_id), None)
             if not match:
-                return [types.TextContent(type="text", text=f"Unit '{unit_id}' not found.")]
+                return [
+                    types.TextContent(type="text", text=f"Unit '{unit_id}' not found.")
+                ]
             text = (
                 f"# {match['kind'].upper()}: {match['module']}.{match['name']}\n"
                 f"File: {match['file_path']} (lines {match['line_start']}–{match['line_end']})\n\n"
@@ -308,7 +319,11 @@ def build_server(index_dir: str, repo_root: str):
             module = arguments["module"]
             units = [r for r in store._records if r["module"] == module]
             if not units:
-                return [types.TextContent(type="text", text=f"No units found in module '{module}'.")]
+                return [
+                    types.TextContent(
+                        type="text", text=f"No units found in module '{module}'."
+                    )
+                ]
             lines = [f"## Module: {module}\n"]
             for u in sorted(units, key=lambda x: x["line_start"]):
                 lines.append(f"### {u['kind']}: {u['name']} (line {u['line_start']})")
@@ -322,32 +337,51 @@ def build_server(index_dir: str, repo_root: str):
             exclude = set(arguments.get("exclude_dirs", []))
             units = parse_repository(repo_root, exclude_dirs=exclude or None)
             store.upsert(units)
-            return [types.TextContent(
-                type="text",
-                text=f"Indexed {len(units)} units from {repo_root}.\n{json.dumps(store.stats(), indent=2)}"
-            )]
+            return [
+                types.TextContent(
+                    type="text",
+                    text=f"Indexed {len(units)} units from {repo_root}.\n{json.dumps(store.stats(), indent=2)}",
+                )
+            ]
 
         elif name == "get_index_stats":
             stats = store.stats()
-            return [types.TextContent(type="text", text=f"```json\n{json.dumps(stats, indent=2)}\n```")]
+            return [
+                types.TextContent(
+                    type="text", text=f"```json\n{json.dumps(stats, indent=2)}\n```"
+                )
+            ]
 
         elif name == "generate_function":
             request_text = arguments.get("request", "").strip()
             if not request_text:
-                return [types.TextContent(type="text", text="Error: 'request' is required.")]
+                return [
+                    types.TextContent(type="text", text="Error: 'request' is required.")
+                ]
 
             # Input length guard — prevent abuse via extremely long prompts
             _MAX_REQUEST_LEN = 10_000
             if len(request_text) > _MAX_REQUEST_LEN:
-                return [types.TextContent(
-                    type="text",
-                    text=f"Error: request too long ({len(request_text)} chars, max {_MAX_REQUEST_LEN}).",
-                )]
+                return [
+                    types.TextContent(
+                        type="text",
+                        text=f"Error: request too long ({len(request_text)} chars, max {_MAX_REQUEST_LEN}).",
+                    )
+                ]
 
-            module_path_arg: Optional[str] = arguments.get("module_path", "").strip() or None
+            module_path_arg: Optional[str] = (
+                arguments.get("module_path", "").strip() or None
+            )
             # Validate module_path to prevent path traversal
-            if module_path_arg and (".." in module_path_arg or module_path_arg.startswith("/")):
-                return [types.TextContent(type="text", text="Error: module_path must be a relative path without '..'")]
+            if module_path_arg and (
+                ".." in module_path_arg or module_path_arg.startswith("/")
+            ):
+                return [
+                    types.TextContent(
+                        type="text",
+                        text="Error: module_path must be a relative path without '..'",
+                    )
+                ]
 
             agent_arg: Optional[str] = arguments.get("agent") or None
             model_arg: Optional[str] = arguments.get("model") or None
@@ -356,7 +390,9 @@ def build_server(index_dir: str, repo_root: str):
             # --- 1. Fetch context from the existing index ---
             context_str = ""
             try:
-                ctx_results = store.search(query=request_text, n_results=context_n, kind_filter="function")
+                ctx_results = store.search(
+                    query=request_text, n_results=context_n, kind_filter="function"
+                )
                 if ctx_results:
                     snippets = []
                     for r in ctx_results:
@@ -401,7 +437,12 @@ def build_server(index_dir: str, repo_root: str):
                     target = (repo_root_path / module_path_arg).resolve()
                     # Ensure target is within repo root
                     if not str(target).startswith(str(repo_root_path)):
-                        return [types.TextContent(type="text", text="Error: module_path escapes repository root.")]
+                        return [
+                            types.TextContent(
+                                type="text",
+                                text="Error: module_path escapes repository root.",
+                            )
+                        ]
                 else:
                     generated_dir = Path(".tool_builder") / "generated"
                     generated_dir.mkdir(parents=True, exist_ok=True)
@@ -410,7 +451,9 @@ def build_server(index_dir: str, repo_root: str):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 if target.exists():
                     existing = target.read_text(encoding="utf-8")
-                    target.write_text(existing.rstrip() + "\n\n\n" + code + "\n", encoding="utf-8")
+                    target.write_text(
+                        existing.rstrip() + "\n\n\n" + code + "\n", encoding="utf-8"
+                    )
                     write_mode = "appended"
                 else:
                     target.write_text(code + "\n", encoding="utf-8")
@@ -423,18 +466,24 @@ def build_server(index_dir: str, repo_root: str):
                 if agent_used == "codex" and codex_wrote_files:
                     # Re-index only the files Codex actually changed
                     from parser import parse_file
+
                     new_units = []
                     for rel_path in codex_changed_files:
                         abs_path = str(Path(repo_root).resolve() / rel_path)
                         try:
                             new_units += parse_file(abs_path, repo_root=repo_root)
                         except Exception:
-                            logger.warning("Failed to parse %s during re-index", rel_path, exc_info=True)
+                            logger.warning(
+                                "Failed to parse %s during re-index",
+                                rel_path,
+                                exc_info=True,
+                            )
                     if new_units:
                         store.upsert(new_units)
                     indexed_count = len(new_units)
                 elif target is not None:
                     from parser import parse_file
+
                     new_units = parse_file(str(target), repo_root=str(repo_root_path))
                     store.upsert(new_units)
                     indexed_count = len(new_units)
@@ -482,7 +531,9 @@ def build_server(index_dir: str, repo_root: str):
 
 def main():
     parser = argparse.ArgumentParser(description="Code RAG MCP Server")
-    parser.add_argument("--index-dir", default="./.code_index", help="Path to vector index directory")
+    parser.add_argument(
+        "--index-dir", default="./.code_index", help="Path to vector index directory"
+    )
     parser.add_argument("--repo", required=True, help="Path to repository root")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind to")
     parser.add_argument("--port", default=8000, type=int, help="Port to listen on")
@@ -503,10 +554,10 @@ def main():
         print("ERROR: pip install mcp")
         sys.exit(1)
 
+    import uvicorn
     from starlette.applications import Starlette
     from starlette.responses import JSONResponse
-    from starlette.routing import Route, Mount
-    import uvicorn
+    from starlette.routing import Mount, Route
 
     server, store = build_server(args.index_dir, args.repo)
 
@@ -514,7 +565,11 @@ def main():
     # on the recipe page (and ops can curl it). Cheap O(1) call.
     async def health(_request):
         try:
-            count = store.count() if hasattr(store, "count") else len(getattr(store, "_records", []))
+            count = (
+                store.count()
+                if hasattr(store, "count")
+                else len(getattr(store, "_records", []))
+            )
         except Exception as exc:
             return JSONResponse(
                 {
@@ -541,19 +596,26 @@ def main():
         sse = SseServerTransport("/messages/")
 
         async def handle_sse(request):
-            async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
-                await server.run(streams[0], streams[1], server.create_initialization_options())
+            async with sse.connect_sse(
+                request.scope, request.receive, request._send
+            ) as streams:
+                await server.run(
+                    streams[0], streams[1], server.create_initialization_options()
+                )
 
-        app = Starlette(routes=[
-            Route("/sse", endpoint=handle_sse),
-            Mount("/messages/", app=sse.handle_post_message),
-            Route("/health", endpoint=health),
-        ])
+        app = Starlette(
+            routes=[
+                Route("/sse", endpoint=handle_sse),
+                Mount("/messages/", app=sse.handle_post_message),
+                Route("/health", endpoint=health),
+            ]
+        )
         print(f"Code RAG MCP (SSE) running at http://{args.host}:{args.port}/sse")
 
     else:
-        import anyio
         from contextlib import asynccontextmanager
+
+        import anyio
         from mcp.server.streamable_http import StreamableHTTPServerTransport
 
         streamable = StreamableHTTPServerTransport(mcp_session_id=None)
@@ -562,7 +624,12 @@ def main():
         async def lifespan(app):
             async with streamable.connect() as streams:
                 async with anyio.create_task_group() as tg:
-                    tg.start_soon(server.run, streams[0], streams[1], server.create_initialization_options())
+                    tg.start_soon(
+                        server.run,
+                        streams[0],
+                        streams[1],
+                        server.create_initialization_options(),
+                    )
                     yield
                     tg.cancel_scope.cancel()
 
@@ -573,7 +640,9 @@ def main():
             ],
             lifespan=lifespan,
         )
-        print(f"Code RAG MCP (streamable HTTP) running at http://{args.host}:{args.port}{args.mount_path}")
+        print(
+            f"Code RAG MCP (streamable HTTP) running at http://{args.host}:{args.port}{args.mount_path}"
+        )
 
     uvicorn.run(app, host=args.host, port=args.port)
 

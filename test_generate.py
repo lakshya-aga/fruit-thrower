@@ -4,6 +4,7 @@ test_generate.py — end-to-end test for the generate_function MCP tool.
 Starts the server (SSE transport), calls generate_function with a simple
 quant finance request, and checks the response contains Python code.
 """
+
 import asyncio
 import os
 import signal
@@ -18,8 +19,8 @@ INDEX = str(Path(__file__).parent / ".code_index")
 
 
 async def run_test():
-    from mcp.client.sse import sse_client
     from mcp.client.session import ClientSession
+    from mcp.client.sse import sse_client
 
     async with sse_client(SERVER_URL) as (read, write):
         async with ClientSession(read, write) as session:
@@ -49,8 +50,9 @@ async def run_test():
 
             assert "```python" in text, "Response does not contain a code block!"
             assert "def " in text, "Response does not contain a function definition!"
-            assert "mock" in text.lower() or "rolling_sharpe" in text, \
+            assert "mock" in text.lower() or "rolling_sharpe" in text, (
                 "Expected function name missing from output!"
+            )
             print("\nPASS — generate_function returned valid code and indexed it.")
 
 
@@ -59,11 +61,16 @@ def main():
 
     proc = subprocess.Popen(
         [
-            sys.executable, "mcp_server.py",
-            "--repo", REPO,
-            "--index-dir", INDEX,
-            "--transport", "sse",
-            "--port", "18765",
+            sys.executable,
+            "mcp_server.py",
+            "--repo",
+            REPO,
+            "--index-dir",
+            INDEX,
+            "--transport",
+            "sse",
+            "--port",
+            "18765",
         ],
         env=env,
         stdout=subprocess.PIPE,

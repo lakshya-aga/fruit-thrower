@@ -23,6 +23,7 @@ mock
 
 Global selector: FRUIT_CODE_AGENT env var (default: codex).
 """
+
 import logging
 import os
 import re
@@ -98,6 +99,7 @@ def _openai_client(oauth_token: Optional[str], api_key: Optional[str]):
     if oauth_token:
         # OpenAI SDK accepts any bearer token via api_key; set auth header explicitly
         import httpx
+
         return openai.OpenAI(
             api_key="oauth",
             http_client=httpx.Client(
@@ -112,8 +114,13 @@ def _openai_client(oauth_token: Optional[str], api_key: Optional[str]):
     )
 
 
-def _generate_claude(request: str, context: str, model: str,
-                     oauth_token: Optional[str], api_key: Optional[str]) -> str:
+def _generate_claude(
+    request: str,
+    context: str,
+    model: str,
+    oauth_token: Optional[str],
+    api_key: Optional[str],
+) -> str:
     client = _anthropic_client(oauth_token, api_key)
     msg = client.messages.create(
         model=model,
@@ -124,8 +131,13 @@ def _generate_claude(request: str, context: str, model: str,
     return _extract_code(msg.content[0].text)
 
 
-def _generate_openai(request: str, context: str, model: str,
-                     oauth_token: Optional[str], api_key: Optional[str]) -> str:
+def _generate_openai(
+    request: str,
+    context: str,
+    model: str,
+    oauth_token: Optional[str],
+    api_key: Optional[str],
+) -> str:
     client = _openai_client(oauth_token, api_key)
     resp = client.chat.completions.create(
         model=model,
@@ -153,9 +165,13 @@ def _find_codex_bin() -> str:
     return _DEFAULT_CODEX_BIN
 
 
-def _generate_codex(request: str, context: str, repo_root: str,
-                    module_path: Optional[str],
-                    model_override: Optional[str]) -> dict:
+def _generate_codex(
+    request: str,
+    context: str,
+    repo_root: str,
+    module_path: Optional[str],
+    model_override: Optional[str],
+) -> dict:
     """
     Run `codex exec "<prompt>"` non-interactively inside repo_root.
 
@@ -179,7 +195,8 @@ def _generate_codex(request: str, context: str, repo_root: str,
     placement = (
         f"\nWrite the function into `{module_path}` "
         f"(create the file if it doesn't exist).\n"
-        if module_path else ""
+        if module_path
+        else ""
     )
     prompt = _build_user_message(request + placement, context)
 
@@ -261,8 +278,9 @@ def generate_function(
     backend = (agent or os.environ.get("FRUIT_CODE_AGENT", "codex")).lower()
 
     if backend == "codex":
-        result = _generate_codex(request, context, repo_root,
-                                 kwargs.get("module_path"), model_override)
+        result = _generate_codex(
+            request, context, repo_root, kwargs.get("module_path"), model_override
+        )
         model = model_override or os.environ.get("FRUIT_CODEX_MODEL", "default")
         return {
             "code": result["extracted_code"] or result["output"],
@@ -288,15 +306,27 @@ def generate_function(
             '    """\n'
             "    return series.rolling(window).mean()\n"
         )
-        return {"code": stub, "agent_used": "mock", "model_used": "mock", "auth_method": "none"}
+        return {
+            "code": stub,
+            "agent_used": "mock",
+            "model_used": "mock",
+            "auth_method": "none",
+        }
 
     if backend == "claude":
         oauth_token = os.environ.get("ANTHROPIC_OAUTH_TOKEN", "").strip() or None
         api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip() or None
-        model = model_override or os.environ.get("FRUIT_CLAUDE_MODEL", "claude-sonnet-4-6")
+        model = model_override or os.environ.get(
+            "FRUIT_CLAUDE_MODEL", "claude-sonnet-4-6"
+        )
         code = _generate_claude(request, context, model, oauth_token, api_key)
         auth_method = "oauth" if oauth_token else "api_key"
-        return {"code": code, "agent_used": "claude", "model_used": model, "auth_method": auth_method}
+        return {
+            "code": code,
+            "agent_used": "claude",
+            "model_used": model,
+            "auth_method": auth_method,
+        }
 
     if backend in ("openai", "codex", "gpt"):
         oauth_token = os.environ.get("OPENAI_OAUTH_TOKEN", "").strip() or None
@@ -304,7 +334,12 @@ def generate_function(
         model = model_override or os.environ.get("FRUIT_OPENAI_MODEL", "gpt-4o")
         code = _generate_openai(request, context, model, oauth_token, api_key)
         auth_method = "oauth" if oauth_token else "api_key"
-        return {"code": code, "agent_used": "openai", "model_used": model, "auth_method": auth_method}
+        return {
+            "code": code,
+            "agent_used": "openai",
+            "model_used": model,
+            "auth_method": auth_method,
+        }
 
     raise ValueError(
         f"Unknown agent '{backend}'. Set FRUIT_CODE_AGENT to 'claude' or 'openai'."

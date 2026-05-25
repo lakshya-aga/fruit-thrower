@@ -5,10 +5,12 @@ For units that have no docstring (or a stub), this module calls the
 Anthropic API to produce a well-formatted NumPy/Google-style docstring
 and patches the source file in place.
 """
-import logging
-import re
+
 import ast
+import importlib.util
+import logging
 import os
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -17,24 +19,16 @@ logger = logging.getLogger(__name__)
 # Load .env from repo root if present
 try:
     from dotenv import load_dotenv
+
     load_dotenv(Path(__file__).parent / ".env")
 except ImportError:
     pass
 
-try:
-    import anthropic
-    _ANTHROPIC_AVAILABLE = True
-except ImportError:
-    _ANTHROPIC_AVAILABLE = False
+_ANTHROPIC_AVAILABLE = importlib.util.find_spec("anthropic") is not None
 
-try:
-    import openai
-    _OPENAI_AVAILABLE = True
-except ImportError:
-    _OPENAI_AVAILABLE = False
+_OPENAI_AVAILABLE = importlib.util.find_spec("openai") is not None
 
 from parser import ParsedUnit
-
 
 _SYSTEM_PROMPT_GENERATE = """\
 You are an expert Python developer. Your job is to write clear, accurate docstrings.
@@ -159,8 +153,11 @@ def _codex_available() -> bool:
     return Path(_CODEX_BIN).exists()
 
 
-def _make_client(api_key: Optional[str] = None, openai_api_key: Optional[str] = None,
-                 agent: Optional[str] = None):
+def _make_client(
+    api_key: Optional[str] = None,
+    openai_api_key: Optional[str] = None,
+    agent: Optional[str] = None,
+):
     """
     Return (client, backend) where backend is 'codex', 'anthropic', or 'openai'.
 
@@ -169,9 +166,10 @@ def _make_client(api_key: Optional[str] = None, openai_api_key: Optional[str] = 
       2. Anthropic if installed + key available
       3. OpenAI if installed + key available
     """
-    import os
     effective_agent = agent or os.environ.get("FRUIT_CODE_AGENT", "")
-    if effective_agent.lower() == "codex" or (not effective_agent and _codex_available()):
+    if effective_agent.lower() == "codex" or (
+        not effective_agent and _codex_available()
+    ):
         if _codex_available():
             return None, "codex"
 
@@ -180,9 +178,11 @@ def _make_client(api_key: Optional[str] = None, openai_api_key: Optional[str] = 
 
     if _ANTHROPIC_AVAILABLE and ant_key:
         import anthropic as _ant
+
         return _ant.Anthropic(api_key=ant_key), "anthropic"
     if _OPENAI_AVAILABLE and oai_key:
         import openai as _oai
+
         return _oai.OpenAI(api_key=oai_key), "openai"
 
     # Fall back to codex if binary exists and no API keys found
@@ -193,17 +193,22 @@ def _make_client(api_key: Optional[str] = None, openai_api_key: Optional[str] = 
         raise ImportError("pip install anthropic  # or pip install openai")
     if _ANTHROPIC_AVAILABLE:
         raise ValueError("No API key found. Set ANTHROPIC_API_KEY or OPENAI_API_KEY.")
-    raise ValueError("No API key found. Set OPENAI_API_KEY (or install anthropic + set ANTHROPIC_API_KEY).")
+    raise ValueError(
+        "No API key found. Set OPENAI_API_KEY (or install anthropic + set ANTHROPIC_API_KEY)."
+    )
 
 
 def _call_llm(client, backend: str, system: str, user: str) -> str:
     """Send a prompt to whichever backend client was returned by _make_client."""
     if backend == "codex":
         import subprocess
+
         prompt = f"{system}\n\n{user}"
         proc = subprocess.run(
             [_CODEX_BIN, "exec", prompt],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
         output = proc.stdout.strip()
         if not output and proc.stderr:
@@ -229,7 +234,9 @@ def _call_llm(client, backend: str, system: str, user: str) -> str:
         return _strip_triple_quotes(resp.choices[0].message.content)
 
 
-def generate_docstring(unit: ParsedUnit, client, backend: str = "anthropic") -> Optional[str]:
+def generate_docstring(
+    unit: ParsedUnit, client, backend: str = "anthropic"
+) -> Optional[str]:
     """
     Generate a NumPy-style docstring for a ParsedUnit that lacks one.
 
@@ -252,10 +259,14 @@ def generate_docstring(unit: ParsedUnit, client, backend: str = "anthropic") -> 
     >>> client, backend = _make_client()
     >>> doc = generate_docstring(unit, client, backend)
     """
-    return _call_llm(client, backend, _SYSTEM_PROMPT_GENERATE, _build_generate_prompt(unit))
+    return _call_llm(
+        client, backend, _SYSTEM_PROMPT_GENERATE, _build_generate_prompt(unit)
+    )
 
 
-def convert_docstring(unit: ParsedUnit, client, backend: str = "anthropic") -> Optional[str]:
+def convert_docstring(
+    unit: ParsedUnit, client, backend: str = "anthropic"
+) -> Optional[str]:
     """
     Convert an existing docstring to NumPy style.
 
@@ -278,7 +289,9 @@ def convert_docstring(unit: ParsedUnit, client, backend: str = "anthropic") -> O
     >>> client, backend = _make_client()
     >>> doc = convert_docstring(unit, client, backend)
     """
-    return _call_llm(client, backend, _SYSTEM_PROMPT_CONVERT, _build_convert_prompt(unit))
+    return _call_llm(
+        client, backend, _SYSTEM_PROMPT_CONVERT, _build_convert_prompt(unit)
+    )
 
 
 def _find_ast_node(tree: ast.Module, unit: "ParsedUnit") -> ast.AST | None:
@@ -334,7 +347,9 @@ def patch_file_with_docstring(unit: ParsedUnit, docstring: str, repo_root: str) 
     try:
         source = file_path.read_text(encoding="utf-8")
     except OSError:
-        logger.error("Failed to read %s for docstring patching", file_path, exc_info=True)
+        logger.error(
+            "Failed to read %s for docstring patching", file_path, exc_info=True
+        )
         return False
     tree = ast.parse(source)
     lines = source.splitlines(keepends=True)
@@ -374,7 +389,9 @@ def patch_file_with_docstring(unit: ParsedUnit, docstring: str, repo_root: str) 
     try:
         file_path.write_text("".join(lines), encoding="utf-8")
     except OSError:
-        logger.error("Failed to write patched docstring to %s", file_path, exc_info=True)
+        logger.error(
+            "Failed to write patched docstring to %s", file_path, exc_info=True
+        )
         return False
     return True
 
@@ -433,7 +450,9 @@ def generate_missing_docstrings(
 
 def _is_sphinx_style(docstring: str) -> bool:
     """Return True if docstring uses Sphinx :param:/:return: RST style."""
-    return bool(re.search(r":param\s+\w+:", docstring) or re.search(r":return[s]?:", docstring))
+    return bool(
+        re.search(r":param\s+\w+:", docstring) or re.search(r":return[s]?:", docstring)
+    )
 
 
 def convert_all_docstrings(
@@ -474,7 +493,8 @@ def convert_all_docstrings(
     >>> results = convert_all_docstrings(units, repo_root="./fin-kit", dry_run=True)
     """
     candidates = [
-        u for u in units
+        u
+        for u in units
         if u.docstring
         and u.kind != "module"
         and (not module_filter or module_filter in u.module)
@@ -487,7 +507,9 @@ def convert_all_docstrings(
             print(f"  [dry-run] {u.kind:8s} {u.module}.{u.name} (line {u.line_start})")
         return {}
 
-    client, backend = _make_client(api_key=api_key, openai_api_key=openai_api_key, agent=agent)
+    client, backend = _make_client(
+        api_key=api_key, openai_api_key=openai_api_key, agent=agent
+    )
     print(f"Using backend: {backend}")
 
     # Generate all docstrings first, then patch each file bottom-to-top so
@@ -503,6 +525,7 @@ def convert_all_docstrings(
 
     # Group by file, patch bottom-to-top within each file
     from collections import defaultdict
+
     by_file: dict[str, list[tuple[ParsedUnit, str]]] = defaultdict(list)
     for uid, (unit, doc) in generated.items():
         by_file[unit.file_path].append((unit, doc))
@@ -510,7 +533,9 @@ def convert_all_docstrings(
     results = {}
     for file_path, file_units in by_file.items():
         # Reverse order so patches at lower lines don't shift patches at higher lines
-        for unit, doc in sorted(file_units, key=lambda x: x[0].line_start, reverse=True):
+        for unit, doc in sorted(
+            file_units, key=lambda x: x[0].line_start, reverse=True
+        ):
             try:
                 patched = patch_file_with_docstring(unit, doc, repo_root)
                 status = "patched" if patched else "failed"

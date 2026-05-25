@@ -13,6 +13,7 @@ Usage:
     python ft.py convert --repo ./fin-kit --dry-run   # preview Sphinx→NumPy conversion
     python ft.py convert --repo ./fin-kit              # convert and re-index
 """
+
 import argparse
 import asyncio
 import json
@@ -24,6 +25,7 @@ from pathlib import Path
 # Load .env from repo root if present
 try:
     from dotenv import load_dotenv
+
     load_dotenv(Path(__file__).parent / ".env")
 except ImportError:
     pass
@@ -32,8 +34,8 @@ DEFAULT_SERVER = "http://127.0.0.1:8000/sse"
 
 
 async def _call(server: str, tool: str, args: dict) -> str:
-    from mcp.client.sse import sse_client
     from mcp.client.session import ClientSession
+    from mcp.client.sse import sse_client
 
     async with sse_client(server) as (read, write):
         async with ClientSession(read, write) as session:
@@ -51,8 +53,13 @@ def search(server: str, query: str, n: int, kind: str | None, module: str | None
     print(asyncio.run(_call(server, "search_code", args)))
 
 
-def generate(server: str, request: str, module_path: str | None,
-             agent: str | None, model: str | None):
+def generate(
+    server: str,
+    request: str,
+    module_path: str | None,
+    agent: str | None,
+    model: str | None,
+):
     args = {"request": request}
     if module_path:
         args["module_path"] = module_path
@@ -63,22 +70,31 @@ def generate(server: str, request: str, module_path: str | None,
     print(asyncio.run(_call(server, "generate_function", args)))
 
 
-def convert(repo: str, api_key: str | None, openai_api_key: str | None,
-            dry_run: bool, module_filter: str | None, force: bool, index_dir: str,
-            agent: str | None = None):
+def convert(
+    repo: str,
+    api_key: str | None,
+    openai_api_key: str | None,
+    dry_run: bool,
+    module_filter: str | None,
+    force: bool,
+    index_dir: str,
+    agent: str | None = None,
+):
     """Convert Sphinx :param:/:return: docstrings to NumPy style, then re-index."""
     _ft_dir = Path(__file__).parent
     sys.path.insert(0, str(_ft_dir))
 
-    from parser import parse_repository
     from docstring_generator import convert_all_docstrings
+    from parser import parse_repository
 
     # Key resolution: explicit flags > env vars; no check needed here — _make_client raises clearly
     if not dry_run:
         ant_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
         oai_key = openai_api_key or os.environ.get("OPENAI_API_KEY")
         if not ant_key and not oai_key:
-            print("ERROR: Set ANTHROPIC_API_KEY or OPENAI_API_KEY (or pass --api-key / --openai-key)")
+            print(
+                "ERROR: Set ANTHROPIC_API_KEY or OPENAI_API_KEY (or pass --api-key / --openai-key)"
+            )
             sys.exit(1)
 
     print(f"Parsing repository: {repo}")
@@ -101,6 +117,7 @@ def convert(repo: str, api_key: str | None, openai_api_key: str | None,
 
     print(f"\nConverted {len(results)} docstrings. Re-indexing...")
     from vector_store import CodeVectorStore, SimpleTFIDFStore
+
     try:
         store = CodeVectorStore(persist_dir=index_dir)
     except Exception:
@@ -145,55 +162,103 @@ def main():
         description="fruit-thrower CLI — search and generate fin-kit functions",
     )
     parser.add_argument(
-        "--server", default=DEFAULT_SERVER,
-        help=f"MCP server SSE URL (default: {DEFAULT_SERVER})"
+        "--server",
+        default=DEFAULT_SERVER,
+        help=f"MCP server SSE URL (default: {DEFAULT_SERVER})",
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     # search
     p_search = sub.add_parser("search", help="Semantic search over indexed functions")
     p_search.add_argument("query", help="Natural language or code query")
-    p_search.add_argument("-n", type=int, default=5, help="Number of results (default: 5)")
-    p_search.add_argument("--kind", choices=["function", "class", "method", "module"],
-                          help="Filter by unit kind")
+    p_search.add_argument(
+        "-n", type=int, default=5, help="Number of results (default: 5)"
+    )
+    p_search.add_argument(
+        "--kind",
+        choices=["function", "class", "method", "module"],
+        help="Filter by unit kind",
+    )
     p_search.add_argument("--module", help="Filter by module name prefix")
 
     # docs
     p_docs = sub.add_parser("docs", help="Serve or build pdoc HTML documentation")
-    p_docs.add_argument("--repo", default=str(Path(__file__).parent / "fin-kit"),
-                        help="Path to the repo (default: ./fin-kit)")
-    p_docs.add_argument("--port", type=int, default=8080,
-                        help="Port for live server (default: 8080)")
-    p_docs.add_argument("--build", action="store_true",
-                        help="Build static HTML instead of serving")
-    p_docs.add_argument("--output-dir", default="./pdoc_out",
-                        help="Output dir for --build (default: ./pdoc_out)")
+    p_docs.add_argument(
+        "--repo",
+        default=str(Path(__file__).parent / "fin-kit"),
+        help="Path to the repo (default: ./fin-kit)",
+    )
+    p_docs.add_argument(
+        "--port", type=int, default=8080, help="Port for live server (default: 8080)"
+    )
+    p_docs.add_argument(
+        "--build", action="store_true", help="Build static HTML instead of serving"
+    )
+    p_docs.add_argument(
+        "--output-dir",
+        default="./pdoc_out",
+        help="Output dir for --build (default: ./pdoc_out)",
+    )
 
     # generate
-    p_gen = sub.add_parser("generate", help="Generate a new function via Codex (or Claude/OpenAI)")
-    p_gen.add_argument("request", help="Natural language description of the function to create")
-    p_gen.add_argument("--module", dest="module_path",
-                       help="Target file path in repo, e.g. mlfinlab/portfolio/hrp.py")
-    p_gen.add_argument("--agent", choices=["codex", "claude", "openai"],
-                       help="Override coding agent (default: $FRUIT_CODE_AGENT or codex)")
+    p_gen = sub.add_parser(
+        "generate", help="Generate a new function via Codex (or Claude/OpenAI)"
+    )
+    p_gen.add_argument(
+        "request", help="Natural language description of the function to create"
+    )
+    p_gen.add_argument(
+        "--module",
+        dest="module_path",
+        help="Target file path in repo, e.g. mlfinlab/portfolio/hrp.py",
+    )
+    p_gen.add_argument(
+        "--agent",
+        choices=["codex", "claude", "openai"],
+        help="Override coding agent (default: $FRUIT_CODE_AGENT or codex)",
+    )
     p_gen.add_argument("--model", help="Override model ID")
 
     # convert
-    p_conv = sub.add_parser("convert", help="Convert Sphinx-style docstrings to NumPy style")
-    p_conv.add_argument("--repo", default=str(Path(__file__).parent / "fin-kit"),
-                        help="Path to repository root (default: ./fin-kit)")
-    p_conv.add_argument("--api-key", help="Anthropic API key (or set ANTHROPIC_API_KEY)")
-    p_conv.add_argument("--openai-key", help="OpenAI API key fallback (or set OPENAI_API_KEY)")
-    p_conv.add_argument("--dry-run", action="store_true",
-                        help="List units that would be converted, without writing files")
-    p_conv.add_argument("--module", dest="module_filter",
-                        help="Only convert units in modules containing this string")
-    p_conv.add_argument("--force", action="store_true",
-                        help="Convert all docstrings, not just Sphinx-style ones")
-    p_conv.add_argument("--index-dir", default=str(Path(__file__).parent / ".code_index"),
-                        help="Vector index directory for re-indexing after conversion")
-    p_conv.add_argument("--agent", choices=["codex", "claude", "openai"],
-                        help="LLM backend (default: codex if installed, else openai/anthropic)")
+    p_conv = sub.add_parser(
+        "convert", help="Convert Sphinx-style docstrings to NumPy style"
+    )
+    p_conv.add_argument(
+        "--repo",
+        default=str(Path(__file__).parent / "fin-kit"),
+        help="Path to repository root (default: ./fin-kit)",
+    )
+    p_conv.add_argument(
+        "--api-key", help="Anthropic API key (or set ANTHROPIC_API_KEY)"
+    )
+    p_conv.add_argument(
+        "--openai-key", help="OpenAI API key fallback (or set OPENAI_API_KEY)"
+    )
+    p_conv.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="List units that would be converted, without writing files",
+    )
+    p_conv.add_argument(
+        "--module",
+        dest="module_filter",
+        help="Only convert units in modules containing this string",
+    )
+    p_conv.add_argument(
+        "--force",
+        action="store_true",
+        help="Convert all docstrings, not just Sphinx-style ones",
+    )
+    p_conv.add_argument(
+        "--index-dir",
+        default=str(Path(__file__).parent / ".code_index"),
+        help="Vector index directory for re-indexing after conversion",
+    )
+    p_conv.add_argument(
+        "--agent",
+        choices=["codex", "claude", "openai"],
+        help="LLM backend (default: codex if installed, else openai/anthropic)",
+    )
 
     args = parser.parse_args()
 
@@ -204,8 +269,16 @@ def main():
     elif args.cmd == "docs":
         docs(args.repo, args.port, args.build, args.output_dir)
     elif args.cmd == "convert":
-        convert(args.repo, args.api_key, args.openai_key, args.dry_run,
-                args.module_filter, args.force, args.index_dir, args.agent)
+        convert(
+            args.repo,
+            args.api_key,
+            args.openai_key,
+            args.dry_run,
+            args.module_filter,
+            args.force,
+            args.index_dir,
+            args.agent,
+        )
 
 
 if __name__ == "__main__":

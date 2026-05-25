@@ -5,6 +5,7 @@ The agent is tasked with building a portfolio construction feature.
 It searches the index for relevant existing code, finds gaps, then
 requests a new function via generate_function (Codex backend).
 """
+
 import asyncio
 import os
 import signal
@@ -26,8 +27,8 @@ def section(title):
 
 
 async def run_demo():
-    from mcp.client.sse import sse_client
     from mcp.client.session import ClientSession
+    from mcp.client.sse import sse_client
 
     async with sse_client(SERVER_URL) as (read, write):
         async with ClientSession(read, write) as session:
@@ -40,10 +41,15 @@ async def run_demo():
                 print(f"  • {t.name}")
 
             # ── Step 2: first search ───────────────────────────────────────
-            section("STEP 2 — Agent searches: 'portfolio optimisation minimum variance'")
+            section(
+                "STEP 2 — Agent searches: 'portfolio optimisation minimum variance'"
+            )
             r = await session.call_tool(
                 "search_code",
-                {"query": "portfolio optimisation minimum variance weights", "n_results": 3},
+                {
+                    "query": "portfolio optimisation minimum variance weights",
+                    "n_results": 3,
+                },
             )
             print(r.content[0].text)
 
@@ -51,30 +57,51 @@ async def run_demo():
             section("STEP 3 — Agent refines: 'risk parity equal risk contribution'")
             r = await session.call_tool(
                 "search_code",
-                {"query": "risk parity equal risk contribution portfolio weights", "n_results": 3},
+                {
+                    "query": "risk parity equal risk contribution portfolio weights",
+                    "n_results": 3,
+                },
             )
             print(r.content[0].text)
 
             # ── Step 4: third search (look for anything close) ─────────────
-            section("STEP 4 — Agent broadens: 'covariance matrix portfolio weights allocation'")
+            section(
+                "STEP 4 — Agent broadens: 'covariance matrix portfolio weights allocation'"
+            )
             r = await session.call_tool(
                 "search_code",
-                {"query": "covariance matrix portfolio weights allocation", "n_results": 3, "kind": "function"},
+                {
+                    "query": "covariance matrix portfolio weights allocation",
+                    "n_results": 3,
+                    "kind": "function",
+                },
             )
             print(r.content[0].text)
 
             # ── Step 5: check module list for portfolio module ─────────────
-            section("STEP 5 — Agent checks module list for any portfolio-related module")
+            section(
+                "STEP 5 — Agent checks module list for any portfolio-related module"
+            )
             r = await session.call_tool("list_modules", {})
             lines = r.content[0].text.splitlines()
-            portfolio_lines = [l for l in lines if "portfolio" in l.lower() or "weight" in l.lower() or "alloc" in l.lower()]
+            portfolio_lines = [
+                line
+                for line in lines
+                if (
+                    "portfolio" in line.lower()
+                    or "weight" in line.lower()
+                    or "alloc" in line.lower()
+                )
+            ]
             if portfolio_lines:
                 print("\n".join(portfolio_lines))
             else:
                 print("  (no dedicated portfolio/weight/allocation module found)")
 
             # ── Step 6: agent concludes and requests generation ────────────
-            section("STEP 6 — Agent concludes: function not present → calling generate_function")
+            section(
+                "STEP 6 — Agent concludes: function not present → calling generate_function"
+            )
             print("""
   Agent reasoning:
     • search_code found volatility estimators and backtest stats but no
@@ -113,11 +140,16 @@ def main():
     env = {**os.environ, "PYTHONUNBUFFERED": "1"}
     proc = subprocess.Popen(
         [
-            sys.executable, "mcp_server.py",
-            "--repo", REPO,
-            "--index-dir", INDEX,
-            "--transport", "sse",
-            "--port", "18766",
+            sys.executable,
+            "mcp_server.py",
+            "--repo",
+            REPO,
+            "--index-dir",
+            INDEX,
+            "--transport",
+            "sse",
+            "--port",
+            "18766",
         ],
         env=env,
         stdout=subprocess.PIPE,

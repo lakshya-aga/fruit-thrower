@@ -4,6 +4,7 @@ vector_store.py — Embed and persist parsed code units using ChromaDB.
 Embeddings are handled by ChromaDB's default embedding function (sentence-transformer),
 with persistence on disk. Supports upsert (idempotent re-indexing) and semantic search.
 """
+
 import json
 import logging
 import os
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 try:
     import chromadb
     from chromadb.config import Settings
+
     _CHROMA_AVAILABLE = True
 except ImportError:
     _CHROMA_AVAILABLE = False
@@ -36,7 +38,9 @@ class CodeVectorStore:
         >>> results = store.search("cusum filter for financial time series")
     """
 
-    def __init__(self, persist_dir: str = "./.code_index", api_key: Optional[str] = None):
+    def __init__(
+        self, persist_dir: str = "./.code_index", api_key: Optional[str] = None
+    ):
         """
         Initialise the vector store.
 
@@ -84,18 +88,21 @@ class CodeVectorStore:
                 self._collection.upsert(
                     ids=[u.id for u in batch],
                     documents=texts,
-                    metadatas=[{
-                        "kind": self._sanitize_metadata_str(u.kind),
-                        "name": self._sanitize_metadata_str(u.name),
-                        "module": self._sanitize_metadata_str(u.module),
-                        "file_path": self._sanitize_metadata_str(u.file_path),
-                        "line_start": u.line_start,
-                        "line_end": u.line_end,
-                        "signature": self._sanitize_metadata_str(u.signature),
-                        "docstring": self._sanitize_metadata_str(u.docstring or ""),
-                        "parent": self._sanitize_metadata_str(u.parent or ""),
-                        "source": self._sanitize_metadata_str(u.source[:2000]),
-                    } for u in batch],
+                    metadatas=[
+                        {
+                            "kind": self._sanitize_metadata_str(u.kind),
+                            "name": self._sanitize_metadata_str(u.name),
+                            "module": self._sanitize_metadata_str(u.module),
+                            "file_path": self._sanitize_metadata_str(u.file_path),
+                            "line_start": u.line_start,
+                            "line_end": u.line_end,
+                            "signature": self._sanitize_metadata_str(u.signature),
+                            "docstring": self._sanitize_metadata_str(u.docstring or ""),
+                            "parent": self._sanitize_metadata_str(u.parent or ""),
+                            "source": self._sanitize_metadata_str(u.source[:2000]),
+                        }
+                        for u in batch
+                    ],
                 )
             except Exception:
                 logger.error("Failed to upsert batch at offset %d", i, exc_info=True)
@@ -135,11 +142,13 @@ class CodeVectorStore:
         for i, meta in enumerate(results["metadatas"][0]):
             if module_filter and module_filter not in meta.get("module", ""):
                 continue
-            hits.append({
-                "score": 1 - results["distances"][0][i],  # cosine sim
-                "id": results["ids"][0][i],
-                **meta,
-            })
+            hits.append(
+                {
+                    "score": 1 - results["distances"][0][i],  # cosine sim
+                    "id": results["ids"][0][i],
+                    **meta,
+                }
+            )
             if len(hits) >= n_results:
                 break
         return hits
@@ -169,6 +178,7 @@ class CodeVectorStore:
 
 # ── Fallback: simple TF-IDF store (no API needed) ─────────────────────────
 
+
 class SimpleTFIDFStore:
     """
     Lightweight keyword-based code store using TF-IDF.
@@ -186,7 +196,6 @@ class SimpleTFIDFStore:
         """
         :param persist_dir: (str) Directory for JSON persistence.
         """
-        import sklearn  # noqa: just check it's available
         os.makedirs(persist_dir, exist_ok=True)
         self._persist_dir = persist_dir
         self._index_path = os.path.join(persist_dir, "index.json")
@@ -203,6 +212,7 @@ class SimpleTFIDFStore:
 
     def _fit(self):
         from sklearn.feature_extraction.text import TfidfVectorizer
+
         if not self._records:
             return
         self._vectorizer = TfidfVectorizer(ngram_range=(1, 2), max_features=20000)
@@ -292,4 +302,8 @@ class SimpleTFIDFStore:
         for r in self._records:
             kinds[r["kind"]] = kinds.get(r["kind"], 0) + 1
             modules.add(r["module"])
-        return {"total_units": len(self._records), "by_kind": kinds, "unique_modules": len(modules)}
+        return {
+            "total_units": len(self._records),
+            "by_kind": kinds,
+            "unique_modules": len(modules),
+        }
